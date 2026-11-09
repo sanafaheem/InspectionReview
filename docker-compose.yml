@@ -1,0 +1,29 @@
+# Local infrastructure for development: SQL Server and Azurite (Azure Blob Storage emulator).
+# Start it with ./scripts/db-up.sh, which reads the sa password from .NET user secrets.
+# The password is never stored in this repo.
+services:
+  sqlserver:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    container_name: inspectionreview-sql
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_PID: "Developer"
+      MSSQL_SA_PASSWORD: ${MSSQL_SA_PASSWORD:?Run ./scripts/db-up.sh so the password is read from user secrets}
+    ports:
+      - "1433:1433"
+    volumes:
+      - sqlserver-data:/var/opt/mssql
+
+  azurite:
+    image: mcr.microsoft.com/azure-storage/azurite:latest
+    container_name: inspectionreview-azurite
+    # Blob service only. --skipApiVersionCheck lets newer Azure SDKs talk to the emulator.
+    command: azurite-blob --blobHost 0.0.0.0 --blobPort 10000 --location /data --skipApiVersionCheck
+    ports:
+      - "10000:10000"
+    volumes:
+      - azurite-data:/data
+
+volumes:
+  sqlserver-data:
+  azurite-data:
