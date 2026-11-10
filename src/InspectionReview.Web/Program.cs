@@ -1,5 +1,7 @@
 using InspectionReview.Web.Components;
 using InspectionReview.Web.Data;
+using InspectionReview.Web.Domain;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -22,7 +24,24 @@ if (string.IsNullOrWhiteSpace(connectionString))
 builder.Services.AddDbContextFactory<AppDbContext>(options =>
     options.UseSqlServer(connectionString));
 
+// Identity, wired up by hand (no scaffolded Identity UI). AddDbContextFactory above also
+// registers a scoped AppDbContext, which the Identity stores use.
+builder.Services.AddIdentity<AppUser, IdentityRole>(options =>
+    {
+        options.User.RequireUniqueEmail = true;
+    })
+    .AddEntityFrameworkStores<AppDbContext>()
+    .AddDefaultTokenProviders();
+
 var app = builder.Build();
+
+// Development only: apply pending migrations, then seed users and inspection assignments.
+if (app.Environment.IsDevelopment())
+{
+    await using var scope = app.Services.CreateAsyncScope();
+    await scope.ServiceProvider.GetRequiredService<AppDbContext>().Database.MigrateAsync();
+    await SeedData.SeedAsync(scope.ServiceProvider);
+}
 
 // Configure the HTTP request pipeline.
 if (!app.Environment.IsDevelopment())
@@ -34,7 +53,8 @@ if (!app.Environment.IsDevelopment())
 
 app.UseHttpsRedirection();
 
-
+app.UseAuthentication();
+app.UseAuthorization();
 app.UseAntiforgery();
 
 app.MapStaticAssets();
