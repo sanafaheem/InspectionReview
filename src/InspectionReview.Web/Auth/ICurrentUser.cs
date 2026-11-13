@@ -6,7 +6,12 @@ namespace InspectionReview.Web.Auth;
 /// </summary>
 public interface ICurrentUser
 {
-    bool IsAuthenticated { get; }
-    string? UserId { get; }
-    string? DisplayName { get; }
+    /// <summary>Returns null when nobody is signed in.</summary>
+    Task<CurrentUserInfo?> GetAsync(CancellationToken cancellationToken = default);
+}
+
+/// <summary>Snapshot of the signed-in user. FirmId is set only for firm users.</summary>
+public sealed record CurrentUserInfo(string UserId, string DisplayName, IReadOnlyList<string> Roles, int? FirmId)
+{
+    public bool IsInRole(string role) => Roles.Contains(role);
 }

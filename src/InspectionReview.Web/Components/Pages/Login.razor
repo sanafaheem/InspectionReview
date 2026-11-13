@@ -1,0 +1,66 @@
+@page "/login"
+@attribute [AllowAnonymous]
+@attribute [ExcludeFromInteractiveRouting]
+@using System.ComponentModel.DataAnnotations
+@using InspectionReview.Web.Auth
+@inject LoginService LoginService
+@inject NavigationManager Navigation
+
+<PageTitle>Log in</PageTitle>
+
+<h1>Log in</h1>
+<p>Choose who to sign in as.</p>
+
+@if (errorMessage is not null)
+{
+    <div class="alert alert-danger">@errorMessage</div>
+}
+
+<EditForm Model="Input" method="post" OnValidSubmit="SignInAsync" FormName="login">
+    <DataAnnotationsValidator />
+    <ValidationSummary class="text-danger" />
+
+    <div class="mb-3">
+        <label for="user" class="form-label">User</label>
+        <InputSelect id="user" class="form-select" @bind-Value="Input.UserId">
+            <option value="">Choose a user…</option>
+            @foreach (var option in options)
+            {
+                <option value="@option.UserId">@option.DisplayName (@option.Role) · @option.Email</option>
+            }
+        </InputSelect>
+    </div>
+
+    <button type="submit" class="btn btn-primary">Sign in</button>
+</EditForm>
+
+@code {
+    [SupplyParameterFromForm]
+    private LoginInput Input { get; set; } = new();
+
+    [SupplyParameterFromQuery]
+    private string? ReturnUrl { get; set; }
+
+    private IReadOnlyList<LoginOption> options = [];
+    private string? errorMessage;
+
+    protected override async Task OnInitializedAsync() =>
+        options = await LoginService.GetLoginOptionsAsync();
+
+    private async Task SignInAsync()
+    {
+        if (!await LoginService.SignInAsync(Input.UserId!))
+        {
+            errorMessage = "That user no longer exists.";
+            return;
+        }
+
+        Navigation.NavigateTo(LoginService.SafeReturnUrl(ReturnUrl));
+    }
+
+    private sealed class LoginInput
+    {
+        [Required(ErrorMessage = "Choose a user.")]
+        public string? UserId { get; set; }
+    }
+}
