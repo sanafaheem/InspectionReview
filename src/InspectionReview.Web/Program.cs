@@ -1,3 +1,4 @@
+using InspectionReview.Web.Auth;
 using InspectionReview.Web.Components;
 using InspectionReview.Web.Data;
 using InspectionReview.Web.Domain;
@@ -33,6 +34,14 @@ builder.Services.AddIdentity<AppUser, IdentityRole>(options =>
     .AddEntityFrameworkStores<AppDbContext>()
     .AddDefaultTokenProviders();
 
+builder.Services.AddCascadingAuthenticationState();
+
+// AddIdentity defaults to /Account/Login; point it at our page.
+builder.Services.ConfigureApplicationCookie(options => options.LoginPath = "/login");
+
+builder.Services.AddScoped<ICurrentUser, CurrentUser>();
+builder.Services.AddScoped<LoginService>();
+
 var app = builder.Build();
 
 // Development only: apply pending migrations, then seed users and inspection assignments.
@@ -60,5 +69,11 @@ app.UseAntiforgery();
 app.MapStaticAssets();
 app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode();
+
+app.MapPost("/auth/logout", async (LoginService loginService) =>
+{
+    await loginService.LogoutAsync();
+    return Results.LocalRedirect("/login");
+});
 
 app.Run();

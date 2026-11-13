@@ -1,0 +1,20 @@
+@using InspectionReview.Web.Auth
+@inject ICurrentUser CurrentUser
+
+@if (user is not null)
+{
+    <span class="me-3">
+        @user.DisplayName
+        <span class="badge bg-secondary">@string.Join(", ", user.Roles)</span>
+    </span>
+    <form action="auth/logout" method="post" class="d-inline">
+        <button type="submit" class="btn btn-sm btn-outline-secondary">Log out</button>
+    </form>
+}
+
+@code {
+    private CurrentUserInfo? user;
+
+    protected override async Task OnInitializedAsync() =>
+        user = await CurrentUser.GetAsync();
+}
