@@ -1,0 +1,42 @@
+@page "/inspections/{Id:int}"
+@inject InspectionService InspectionService
+
+<PageTitle>@(inspection?.Reference ?? "Inspection")</PageTitle>
+
+@if (!loaded)
+{
+    <p><em>Loading…</em></p>
+}
+else if (inspection is null)
+{
+    <h1>Inspection not found</h1>
+    <p><a href="">← Back to inspections</a></p>
+}
+else
+{
+    <h1>@inspection.Reference</h1>
+    <dl class="row">
+        <dt class="col-sm-2">Title</dt>
+        <dd class="col-sm-10">@inspection.Title</dd>
+        <dt class="col-sm-2">Firm</dt>
+        <dd class="col-sm-10">@inspection.FirmName</dd>
+    </dl>
+    <p><a href="">← Back to inspections</a></p>
+}
+
+@code {
+    [Parameter]
+    public int Id { get; set; }
+
+    private InspectionDetail? inspection;
+    private bool loaded;
+
+    // OnParametersSetAsync (not OnInitializedAsync) so moving from /inspections/1 to /inspections/2
+    // reloads: Blazor reuses this component and only changes Id.
+    protected override async Task OnParametersSetAsync()
+    {
+        loaded = false;
+        inspection = await InspectionService.GetInspectionAsync(Id);
+        loaded = true;
+    }
+}

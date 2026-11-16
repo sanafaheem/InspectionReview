@@ -2,6 +2,7 @@ using InspectionReview.Web.Auth;
 using InspectionReview.Web.Components;
 using InspectionReview.Web.Data;
 using InspectionReview.Web.Domain;
+using InspectionReview.Web.Services;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 
@@ -37,10 +38,16 @@ builder.Services.AddIdentity<AppUser, IdentityRole>(options =>
 builder.Services.AddCascadingAuthenticationState();
 
 // AddIdentity defaults to /Account/Login; point it at our page.
-builder.Services.ConfigureApplicationCookie(options => options.LoginPath = "/login");
+builder.Services.ConfigureApplicationCookie(options => {
+    options.LoginPath = "/login";
+    options.AccessDeniedPath = "/access-denied";
+});
 
 builder.Services.AddScoped<ICurrentUser, CurrentUser>();
 builder.Services.AddScoped<LoginService>();
+
+builder.Services.AddScoped<AccessPolicy>();
+builder.Services.AddScoped<InspectionService>();
 
 var app = builder.Build();
 
