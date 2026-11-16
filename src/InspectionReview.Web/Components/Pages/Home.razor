@@ -1,7 +1,76 @@
 ﻿@page "/"
+@inject InspectionService InspectionService
+@inject ICurrentUser CurrentUser
+@inject NavigationManager Navigation
 
-<PageTitle>Home</PageTitle>
+<PageTitle>Inspections</PageTitle>
 
-<h1>Hello, world!</h1>
+<h1>Inspections</h1>
 
-Welcome to your new app.
+@if (items is null)
+{
+    <p><em>Loading…</em></p>
+}
+else if (items.Count == 0)
+{
+    <p>There are no inspections to show.</p>
+}
+else
+{
+    <table class="table">
+        <thead>
+            <tr>
+                <th>Reference</th>
+                <th>Title</th>
+                <th>Firm</th>
+                @if (showStatus)
+                {
+                    <th>Status</th>
+                }
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var item in items)
+            {
+                <tr>
+                    <td><a href="inspections/@item.Id">@item.Reference</a></td>
+                    <td>@item.Title</td>
+                    <td>@item.FirmName</td>
+                    @if (showStatus)
+                    {
+                        var (css, label) = StatusTag(item.Status);
+                        <td><span class="badge @css">@label</span></td>
+                    }
+                </tr>
+            }
+        </tbody>
+    </table>
+}
+
+@code {
+    private IReadOnlyList<InspectionListItem>? items;
+    private bool showStatus;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var user = await CurrentUser.GetAsync();
+        if (user?.IsInRole(AppRoles.Reviewer) == true)
+        {
+            Navigation.NavigateTo("review", replace: true);
+            return;
+        }
+
+        items = await InspectionService.GetInspectionsAsync();
+
+        // Only inspectors' rows have a Status, so firm users never see this column.
+        showStatus = items.Any(i => i.Status is not null);
+    }
+
+    private static (string Css, string Label) StatusTag(AssignmentStatus? status) => status switch
+    {
+        AssignmentStatus.Recused => ("bg-warning text-dark", "Recused"),
+        AssignmentStatus.Assigned => ("bg-success", "Assigned"),
+        AssignmentStatus.NotAssigned => ("bg-secondary", "Not assigned"),
+        _ => ("", ""),
+    };
+}
