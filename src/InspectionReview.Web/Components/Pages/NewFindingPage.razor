@@ -1,0 +1,101 @@
+@page "/inspections/{InspectionId:int}/findings/new"
+@inject FindingService FindingService
+@inject NavigationManager Navigation
+
+<PageTitle>New finding</PageTitle>
+
+@if (!loaded)
+{
+    <p><em>Loading…</em></p>
+}
+else if (form is null)
+{
+    <h1>Inspection not found</h1>
+    <p><a href="">← Back to inspections</a></p>
+}
+else
+{
+    <p><a href="inspections/@form.InspectionId">← Back to @form.InspectionReference</a></p>
+    <h1>New finding <small class="text-muted fs-5">@form.InspectionReference</small></h1>
+
+    @if (!form.CanCreate)
+    {
+        <div class="alert alert-secondary">You can't create findings on this inspection.</div>
+    }
+    else
+    {
+        @if (errorMessage is not null)
+        {
+            <div class="alert alert-danger">@errorMessage</div>
+        }
+
+        <FindingForm Model="model" AvailableDocuments="form.AvailableDocuments" Busy="busy"
+                     OnSaveDraft="SaveDraftAsync" OnSubmit="SubmitAsync" />
+    }
+}
+
+@code {
+    [Parameter]
+    public int InspectionId { get; set; }
+
+    private NewFindingForm? form;
+    private readonly FindingFormModel model = new();
+    private bool loaded;
+    private bool busy;
+    private string? errorMessage;
+
+    // Set once created, so a retry after a failed submit doesn't create a duplicate.
+    private int? createdId;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        loaded = false;
+        form = await FindingService.GetNewFindingFormAsync(InspectionId);
+        loaded = true;
+    }
+
+    private Task SaveDraftAsync() => RunAsync(async () =>
+    {
+        var id = await SaveAsync();
+        Navigation.NavigateTo($"findings/{id}");
+    });
+
+    private Task SubmitAsync() => RunAsync(async () =>
+    {
+        var id = await SaveAsync();
+        await FindingService.SubmitAsync(id);
+        Navigation.NavigateTo($"findings/{id}");
+    });
+
+    private async Task<int> SaveAsync()
+    {
+        if (createdId is int id)
+        {
+            await FindingService.UpdateDraftAsync(id, model.Title, model.Text, model.DocumentIds);
+            return id;
+        }
+
+        createdId = await FindingService.CreateAsync(InspectionId, model.Title, model.Text, model.DocumentIds);
+        return createdId.Value;
+    }
+
+    private async Task RunAsync(Func<Task> action)
+    {
+        busy = true;
+        errorMessage = null;
+        try
+        {
+            await action();
+        }
+        catch (Exception ex) when (ex is UnauthorizedAccessException or ArgumentException or InvalidOperationException)
+        {
+            errorMessage = createdId is null
+                ? ex.Message
+                : $"Your draft was saved, but: {ex.Message}";
+        }
+        finally
+        {
+            busy = false;
+        }
+    }
+}

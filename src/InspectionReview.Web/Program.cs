@@ -8,13 +8,11 @@ using Microsoft.EntityFrameworkCore;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Add services to the container.
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
 
-// Database: a factory (not a scoped DbContext) because Blazor Server circuits are long-lived;
-// services create a short-lived context per operation. The connection string comes from
-// configuration (user secrets in development). appsettings.json only declares the key, left empty.
+// A factory rather than a scoped DbContext, because Blazor Server circuits are long-lived.
+// The connection string comes from user secrets; appsettings.json leaves it empty.
 var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
 if (string.IsNullOrWhiteSpace(connectionString))
 {
@@ -26,8 +24,7 @@ if (string.IsNullOrWhiteSpace(connectionString))
 builder.Services.AddDbContextFactory<AppDbContext>(options =>
     options.UseSqlServer(connectionString));
 
-// Identity, wired up by hand (no scaffolded Identity UI). AddDbContextFactory above also
-// registers a scoped AppDbContext, which the Identity stores use.
+// Identity stores use the scoped AppDbContext that AddDbContextFactory also registers.
 builder.Services.AddIdentity<AppUser, IdentityRole>(options =>
     {
         options.User.RequireUniqueEmail = true;
@@ -37,7 +34,6 @@ builder.Services.AddIdentity<AppUser, IdentityRole>(options =>
 
 builder.Services.AddCascadingAuthenticationState();
 
-// AddIdentity defaults to /Account/Login; point it at our page.
 builder.Services.ConfigureApplicationCookie(options => {
     options.LoginPath = "/login";
     options.AccessDeniedPath = "/access-denied";
@@ -48,10 +44,11 @@ builder.Services.AddScoped<LoginService>();
 
 builder.Services.AddScoped<AccessPolicy>();
 builder.Services.AddScoped<InspectionService>();
+builder.Services.AddScoped<FindingService>();
 
 var app = builder.Build();
 
-// Development only: apply pending migrations, then seed users and inspection assignments.
+// Development only: apply migrations, then seed.
 if (app.Environment.IsDevelopment())
 {
     await using var scope = app.Services.CreateAsyncScope();
@@ -59,7 +56,6 @@ if (app.Environment.IsDevelopment())
     await SeedData.SeedAsync(scope.ServiceProvider);
 }
 
-// Configure the HTTP request pipeline.
 if (!app.Environment.IsDevelopment())
 {
     app.UseExceptionHandler("/Error", createScopeForErrors: true);

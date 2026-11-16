@@ -1,5 +1,6 @@
 @page "/inspections/{Id:int}"
 @inject InspectionService InspectionService
+@inject FindingService FindingService
 
 <PageTitle>@(inspection?.Reference ?? "Inspection")</PageTitle>
 
@@ -23,8 +24,7 @@ else
         </div>
         @if (inspection.CanCreateFinding)
         {
-            @* Placeholder: findings aren't built yet. *@
-            <button type="button" class="btn btn-success">New finding</button>
+            <a class="btn btn-success" href="inspections/@inspection.Id/findings/new">New finding</a>
         }
     </div>
 
@@ -114,6 +114,43 @@ else
             </tbody>
         </table>
     }
+
+    @* null = findings aren't shown to this user. *@
+    @if (findings is not null)
+    {
+        <h2 class="h4 mt-4">Findings</h2>
+
+        @if (findings.Count == 0)
+        {
+            <p>No findings yet.</p>
+        }
+        else
+        {
+            <table class="table">
+                <thead>
+                    <tr>
+                        <th>Title</th>
+                        <th>State</th>
+                        <th>Updated</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var finding in findings)
+                    {
+                        <tr>
+                            <td>
+                                <a href="findings/@finding.Id">
+                                    @(string.IsNullOrWhiteSpace(finding.Title) ? "(untitled)" : finding.Title)
+                                </a>
+                            </td>
+                            <td><FindingStateBadge State="finding.State" /></td>
+                            <td>@finding.UpdatedAt.ToString("yyyy-MM-dd HH:mm") UTC</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        }
+    }
 }
 
 @code {
@@ -121,13 +158,13 @@ else
     public int Id { get; set; }
 
     private InspectionDetail? inspection;
+    private IReadOnlyList<FindingListItem>? findings;
     private bool loaded;
     private bool busy;
     private bool confirmingRecusal;
     private string? errorMessage;
 
-    // OnParametersSetAsync (not OnInitializedAsync) so moving from /inspections/1 to /inspections/2
-    // reloads: Blazor reuses this component and only changes Id.
+    // Not OnInitializedAsync: Blazor reuses this component when only Id changes.
     protected override async Task OnParametersSetAsync()
     {
         loaded = false;
@@ -137,8 +174,11 @@ else
         loaded = true;
     }
 
-    private async Task LoadAsync() =>
+    private async Task LoadAsync()
+    {
         inspection = await InspectionService.GetInspectionDetailAsync(Id);
+        findings = inspection is null ? null : await FindingService.GetFindingsForInspectionAsync(Id);
+    }
 
     private Task ConfirmIndependenceAsync() =>
         RunAsync(() => InspectionService.ConfirmIndependenceAsync(Id));
@@ -146,10 +186,7 @@ else
     private Task RecuseAsync() =>
         RunAsync(() => InspectionService.RecuseAsync(inspection!.FirmId));
 
-    /// <summary>
-    /// Runs an action, then reloads so the banners reflect the new state. The service refuses
-    /// anything not allowed; show that as a message instead of crashing the page.
-    /// </summary>
+    // Show refusals as a message instead of crashing the circuit.
     private async Task RunAsync(Func<Task> action)
     {
         busy = true;

@@ -5,7 +5,6 @@ using Microsoft.EntityFrameworkCore;
 
 namespace InspectionReview.Web.Services;
 
-/// <summary>An inspector's relationship to an inspection, as shown in the list.</summary>
 public enum AssignmentStatus
 {
     Assigned,
@@ -13,10 +12,7 @@ public enum AssignmentStatus
     Recused,
 }
 
-/// <summary>
-/// One row of the inspection list. IsAssigned and IsRecused are only set for inspectors
-/// (null for everyone else), so Status is null for non-inspectors too.
-/// </summary>
+/// <summary>IsAssigned and IsRecused are null for non-inspectors, so Status is too.</summary>
 public sealed record InspectionListItem(
     int Id,
     string Reference,
@@ -25,7 +21,7 @@ public sealed record InspectionListItem(
     bool? IsAssigned,
     bool? IsRecused)
 {
-    /// <summary>The tag to show. Recused takes priority over Assigned.</summary>
+    // Recused takes priority over Assigned.
     public AssignmentStatus? Status =>
         IsRecused == true ? AssignmentStatus.Recused
         : IsAssigned == true ? AssignmentStatus.Assigned
@@ -33,10 +29,7 @@ public sealed record InspectionListItem(
         : null;
 }
 
-/// <summary>
-/// One document on the detail page. Status and RejectionReason are only filled in for users
-/// allowed to see them (firm users); for everyone else they're null and never leave the server.
-/// </summary>
+/// <summary>Status and RejectionReason are null unless the user may see them (firm users).</summary>
 public sealed record DocumentItem(
     int Id,
     string FileName,
@@ -46,10 +39,7 @@ public sealed record DocumentItem(
     DocumentStatus? Status,
     string? RejectionReason);
 
-/// <summary>
-/// Everything the /inspections/{id} page shows. The page decides what to display from these
-/// flags only, never from the user's role.
-/// </summary>
+/// <summary>The page decides what to show from these flags, never from the user's role.</summary>
 public sealed record InspectionDetail(
     int Id,
     string Reference,
@@ -63,11 +53,7 @@ public sealed record InspectionDetail(
     bool IsRecused,
     bool CanRecuse);
 
-/// <summary>
-/// Inspection queries and inspector actions. Every query starts from AccessPolicy, so a user
-/// can never load an inspection or document they aren't allowed to see. Every action checks
-/// access on the server and throws UnauthorizedAccessException if it isn't allowed.
-/// </summary>
+/// <summary>Inspection queries and inspector actions. All access checks go through AccessPolicy.</summary>
 public sealed class InspectionService(
     IDbContextFactory<AppDbContext> dbFactory,
     AccessPolicy accessPolicy,
@@ -86,8 +72,7 @@ public sealed class InspectionService(
         {
             var inspectorId = user.UserId;
 
-            // Assigned and Recused are worked out inside the same SQL query (EXISTS subqueries),
-            // not with a second query per row.
+            // Both flags are EXISTS subqueries in the same SQL statement, not a query per row.
             return await visible
                 .Select(i => new InspectionListItem(
                     i.Id,
@@ -104,10 +89,7 @@ public sealed class InspectionService(
             .ToListAsync(cancellationToken);
     }
 
-    /// <summary>
-    /// Returns the inspection with its visible documents and the page's flags, or null if it
-    /// doesn't exist or the user may not see it.
-    /// </summary>
+    /// <summary>Null if the inspection doesn't exist or isn't visible to the user.</summary>
     public async Task<InspectionDetail?> GetInspectionDetailAsync(int id, CancellationToken cancellationToken = default)
     {
         await using var db = await dbFactory.CreateDbContextAsync(cancellationToken);
@@ -155,10 +137,7 @@ public sealed class InspectionService(
             access.CanRecuse);
     }
 
-    /// <summary>
-    /// Records that the current inspector has confirmed their independence for this inspection.
-    /// Allowed only if they're assigned and not recused. Confirming again keeps the first time.
-    /// </summary>
+    /// <summary>Assigned and not recused only. Confirming again keeps the first time.</summary>
     public async Task ConfirmIndependenceAsync(int inspectionId, CancellationToken cancellationToken = default)
     {
         var access = await accessPolicy.GetInspectionAccessAsync(inspectionId);
@@ -181,10 +160,7 @@ public sealed class InspectionService(
         }
     }
 
-    /// <summary>
-    /// Recuses the current inspector from a firm (all its inspections, now and in future).
-    /// Inspectors only. Does nothing if they're already recused.
-    /// </summary>
+    /// <summary>Inspectors only. Does nothing if already recused.</summary>
     public async Task RecuseAsync(int firmId, CancellationToken cancellationToken = default)
     {
         if (!await accessPolicy.IsInspectorAsync())

@@ -5,39 +5,27 @@ using Microsoft.EntityFrameworkCore;
 
 namespace InspectionReview.Web.Services;
 
-/// <summary>
-/// The current inspector's relationship to one inspection, and the rules derived from it.
-/// Everything is false for users who aren't inspectors.
-/// </summary>
+/// <summary>An inspector's relationship to one inspection. All false for non-inspectors.</summary>
 public sealed record InspectionAccess(bool IsInspector, bool IsAssigned, bool IsRecused, bool HasConfirmedIndependence)
 {
     public static readonly InspectionAccess None = new(false, false, false, false);
 
-    /// <summary>Assigned, independence confirmed, and not recused from the inspection's firm.</summary>
     public bool CanCreateFinding => IsInspector && IsAssigned && HasConfirmedIndependence && !IsRecused;
 
-    /// <summary>Assigned and not recused, but hasn't confirmed independence yet.</summary>
     public bool NeedsIndependenceConfirmation => IsInspector && IsAssigned && !IsRecused && !HasConfirmedIndependence;
 
-    /// <summary>Assigned and not recused (confirming again is allowed and keeps the first time).</summary>
     public bool CanConfirmIndependence => IsInspector && IsAssigned && !IsRecused;
 
-    /// <summary>Any inspector who isn't already recused from the inspection's firm.</summary>
     public bool CanRecuse => IsInspector && !IsRecused;
 }
 
-/// <summary>
-/// The single place that decides what the signed-in user may see and do.
-/// Every inspection or document query should start from VisibleInspectionsAsync or VisibleDocumentsAsync,
-/// and every permission check should come from here.
-/// </summary>
+/// <summary>The single place that decides what the signed-in user may see and do.</summary>
 public sealed class AccessPolicy(ICurrentUser currentUser, IDbContextFactory<AppDbContext> dbFactory)
 {
-    /// <summary>
-    /// Returns a query (not yet run) over the inspections the current user may see:
-    /// inspectors see all, firm users see their own firm's, everyone else sees none.
-    /// Takes the caller's context because the query runs later, on that context.
-    /// </summary>
+    // The Visible* methods take the caller's context because they return queries that run later.
+    // The yes/no checks below use their own short-lived context.
+
+    /// <summary>Inspectors see all, firm users see their own firm's, everyone else sees none.</summary>
     public async Task<IQueryable<Inspection>> VisibleInspectionsAsync(AppDbContext db)
     {
         var user = await currentUser.GetAsync();
@@ -57,14 +45,12 @@ public sealed class AccessPolicy(ICurrentUser currentUser, IDbContextFactory<App
             return db.Inspections.Where(i => i.FirmId == firmId);
         }
 
-        // Reviewers, firm users without a firm, and any other role.
         return db.Inspections.Where(_ => false);
     }
 
     /// <summary>
-    /// Returns a query (not yet run) over the documents the current user may see. Incomplete uploads
-    /// (UploadConfirmed = false) are hidden from everyone. Firm users see all of their own firm's
-    /// documents, whatever their status; inspectors see only Accepted ones; everyone else sees none.
+    /// Unconfirmed uploads are hidden from everyone. Firm users see all their firm's documents,
+    /// inspectors only Accepted ones, everyone else none.
     /// </summary>
     public async Task<IQueryable<Document>> VisibleDocumentsAsync(AppDbContext db)
     {
@@ -95,11 +81,6 @@ public sealed class AccessPolicy(ICurrentUser currentUser, IDbContextFactory<App
     public async Task<bool> NeedsIndependenceConfirmationAsync(int inspectionId) =>
         (await GetInspectionAccessAsync(inspectionId)).NeedsIndependenceConfirmation;
 
-    /// <summary>
-    /// Looks up the current inspector's assignment, confirmation and recusal for one inspection
-    /// in a single query. Returns <see cref="InspectionAccess.None"/> for non-inspectors or an
-    /// unknown inspection. Uses its own short-lived context because it returns a finished result.
-    /// </summary>
     public async Task<InspectionAccess> GetInspectionAccessAsync(int inspectionId)
     {
         var user = await currentUser.GetAsync();
@@ -126,11 +107,60 @@ public sealed class AccessPolicy(ICurrentUser currentUser, IDbContextFactory<App
             : new InspectionAccess(IsInspector: true, state.IsAssigned, state.IsRecused, state.HasConfirmed);
     }
 
-    /// <summary>Firm users see each document's check status and rejection reason; nobody else does.</summary>
     public async Task<bool> CanSeeDocumentStatusAsync() =>
         (await currentUser.GetAsync())?.IsInRole(AppRoles.FirmUser) == true;
 
-    /// <summary>Whether the current user is an inspector (the only role that may recuse).</summary>
     public async Task<bool> IsInspectorAsync() =>
         (await currentUser.GetAsync())?.IsInRole(AppRoles.Inspector) == true;
+
+    public async Task<bool> IsReviewerAsync() =>
+        (await currentUser.GetAsync())?.IsInRole(AppRoles.Reviewer) == true;
+
+    /// <summary>Inspectors only, for now. Lets pages hide the findings section entirely.</summary>
+    public Task<bool> CanSeeFindingsAsync() => IsInspectorAsync();
+
+    /// <summary>Inspectors see every finding on inspections they can view; everyone else none (for now).</summary>
+    public async Task<IQueryable<Finding>> VisibleFindingsAsync(AppDbContext db)
+    {
+        if (!await CanSeeFindingsAsync())
+        {
+            return db.Findings.Where(_ => false);
+        }
+
+        var inspections = await VisibleInspectionsAsync(db);
+        return db.Findings.Where(f => inspections.Any(i => i.Id == f.InspectionId));
+    }
+
+    public async Task<bool> CanEditFindingAsync(int findingId) =>
+        (await GetFindingAccessAsync(findingId)).CanEdit;
+
+    public async Task<bool> CanReviseFindingAsync(int findingId) =>
+        (await GetFindingAccessAsync(findingId)).CanRevise;
+
+    public async Task<FindingAccess> GetFindingAccessAsync(int findingId)
+    {
+        await using var db = await dbFactory.CreateDbContextAsync();
+        var finding = await db.Findings
+            .Where(f => f.Id == findingId)
+            .Select(f => new { f.InspectionId, f.State })
+            .SingleOrDefaultAsync();
+
+        if (finding is null)
+        {
+            return FindingAccess.None;
+        }
+
+        var inspectionAccess = await GetInspectionAccessAsync(finding.InspectionId);
+        return new FindingAccess(inspectionAccess, finding.State);
+    }
+}
+
+/// <summary>Edit and revise reuse CanCreateFinding; the finding's state decides which applies.</summary>
+public sealed record FindingAccess(InspectionAccess Inspection, FindingState? State)
+{
+    public static readonly FindingAccess None = new(InspectionAccess.None, null);
+
+    public bool CanEdit => Inspection.CanCreateFinding && State == FindingState.Draft;
+
+    public bool CanRevise => Inspection.CanCreateFinding && State == FindingState.Returned;
 }

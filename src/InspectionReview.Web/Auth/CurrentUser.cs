@@ -5,10 +5,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace InspectionReview.Web.Auth;
 
-/// <summary>
-/// Reads the user Id and roles from the auth cookie's claims, and loads DisplayName and FirmId
-/// from the database. Cached for the lifetime of the scope (one request, or one Blazor circuit).
-/// </summary>
+/// <summary>Id and roles come from the cookie; DisplayName and FirmId from the database. Cached per scope.</summary>
 public sealed class CurrentUser(
     AuthenticationStateProvider authenticationStateProvider,
     IDbContextFactory<AppDbContext> dbFactory) : ICurrentUser
@@ -24,7 +21,6 @@ public sealed class CurrentUser(
 
         var principal = (await authenticationStateProvider.GetAuthenticationStateAsync()).User;
 
-        // Identity puts the user Id in the NameIdentifier claim and each role in a Role claim.
         var userId = principal.FindFirstValue(ClaimTypes.NameIdentifier);
         if (userId is null)
         {

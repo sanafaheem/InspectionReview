@@ -196,6 +196,69 @@ namespace InspectionReview.Web.Migrations
                         });
                 });
 
+            modelBuilder.Entity("InspectionReview.Web.Domain.Finding", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("CreatedById")
+                        .IsRequired()
+                        .HasMaxLength(450)
+                        .HasColumnType("nvarchar(450)");
+
+                    b.Property<int>("InspectionId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("ReturnComment")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("State")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
+                    b.Property<string>("Text")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CreatedById");
+
+                    b.HasIndex("InspectionId");
+
+                    b.ToTable("Findings");
+                });
+
+            modelBuilder.Entity("InspectionReview.Web.Domain.FindingDocument", b =>
+                {
+                    b.Property<int>("FindingId")
+                        .HasColumnType("int");
+
+                    b.Property<int>("DocumentId")
+                        .HasColumnType("int");
+
+                    b.HasKey("FindingId", "DocumentId");
+
+                    b.HasIndex("DocumentId");
+
+                    b.ToTable("FindingDocuments");
+                });
+
             modelBuilder.Entity("InspectionReview.Web.Domain.Firm", b =>
                 {
                     b.Property<int>("Id")
@@ -521,6 +584,44 @@ namespace InspectionReview.Web.Migrations
                     b.Navigation("UploadedBy");
                 });
 
+            modelBuilder.Entity("InspectionReview.Web.Domain.Finding", b =>
+                {
+                    b.HasOne("InspectionReview.Web.Domain.AppUser", "CreatedBy")
+                        .WithMany()
+                        .HasForeignKey("CreatedById")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("InspectionReview.Web.Domain.Inspection", "Inspection")
+                        .WithMany("Findings")
+                        .HasForeignKey("InspectionId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("CreatedBy");
+
+                    b.Navigation("Inspection");
+                });
+
+            modelBuilder.Entity("InspectionReview.Web.Domain.FindingDocument", b =>
+                {
+                    b.HasOne("InspectionReview.Web.Domain.Document", "Document")
+                        .WithMany()
+                        .HasForeignKey("DocumentId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("InspectionReview.Web.Domain.Finding", "Finding")
+                        .WithMany("Documents")
+                        .HasForeignKey("FindingId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Document");
+
+                    b.Navigation("Finding");
+                });
+
             modelBuilder.Entity("InspectionReview.Web.Domain.Inspection", b =>
                 {
                     b.HasOne("InspectionReview.Web.Domain.Firm", "Firm")
@@ -621,6 +722,11 @@ namespace InspectionReview.Web.Migrations
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("InspectionReview.Web.Domain.Finding", b =>
+                {
+                    b.Navigation("Documents");
+                });
+
             modelBuilder.Entity("InspectionReview.Web.Domain.Firm", b =>
                 {
                     b.Navigation("Inspections");
@@ -635,6 +741,8 @@ namespace InspectionReview.Web.Migrations
                     b.Navigation("Assignments");
 
                     b.Navigation("Documents");
+
+                    b.Navigation("Findings");
                 });
 #pragma warning restore 612, 618
         }

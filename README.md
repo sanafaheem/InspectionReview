@@ -98,3 +98,12 @@ These apply to both containers.
 The sa password is set only when the container is first created. If you change the password
 in user secrets later, run the reset command above so the container is recreated with the
 new password.
+
+## Assumptions
+
+- **Firm users do not see findings.** The brief describes findings as internal to inspectors and
+  reviewers. In a real system, firms would likely see approved findings.
+- **Drafts are shared.** Any inspector who can create findings on an inspection (assigned,
+  independence confirmed, not recused) can edit any Draft finding on it, not only their own.
+  The brief's access rule doesn't require being the creator, and an edit lock only makes sense
+  if several inspectors can edit the same finding.

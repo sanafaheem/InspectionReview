@@ -5,13 +5,7 @@ using Xunit.Abstractions;
 
 namespace InspectionReview.Tests;
 
-/// <summary>
-/// Inspection detail, independence confirmation and recusal rules, against a real SQLite in-memory database.
-///
-/// Seed data from HasData, present in every test:
-///   Firm 1 Harbourview Property Group: INS-001 (Id 1), INS-002 (Id 2)
-///   Firm 2 Northgate Facilities Ltd:   INS-003 (Id 3)
-/// </summary>
+// Seed: firm 1 has INS-001 and INS-002, firm 2 has INS-003.
 public sealed class InspectionDetailTests(ITestOutputHelper output) : IDisposable
 {
     private const int Harbourview = 1;
@@ -26,7 +20,7 @@ public sealed class InspectionDetailTests(ITestOutputHelper output) : IDisposabl
     [Fact]
     public async Task Recused_inspector_can_still_view_the_inspection_but_cannot_create_findings()
     {
-        // Assigned AND confirmed, so the recusal is the only thing that should block findings.
+        // Assigned and confirmed, so only the recusal blocks findings.
         await database.AddUserAsync(Inspector);
         await database.AssignAsync(inspectionId: 3, Inspector, independenceConfirmed: true);
         await database.RecuseAsync(Inspector, Northgate);
@@ -56,7 +50,6 @@ public sealed class InspectionDetailTests(ITestOutputHelper output) : IDisposabl
         Assert.True(before.NeedsIndependenceConfirmation);
         Assert.False(await policy.CanCreateFindingAsync(1));
 
-        // Confirming is the only missing piece: afterwards findings are allowed.
         await service.ConfirmIndependenceAsync(1);
         var after = await service.GetInspectionDetailAsync(1);
 
@@ -90,7 +83,6 @@ public sealed class InspectionDetailTests(ITestOutputHelper output) : IDisposabl
         Assert.NotNull(detail);
         var document = Assert.Single(detail.Documents);
         Assert.Equal("accepted.pdf", document.FileName);
-        // Inspectors aren't sent the check status or rejection reason at all.
         Assert.False(detail.ShowDocumentStatus);
         Assert.Null(document.Status);
         Assert.Null(document.RejectionReason);
@@ -114,10 +106,7 @@ public sealed class InspectionDetailTests(ITestOutputHelper output) : IDisposabl
         Assert.Equal("Test rejection reason", rejected.RejectionReason);
     }
 
-    /// <summary>
-    /// INS-002 (Harbourview) gets one confirmed document of each status, plus an Accepted one whose
-    /// upload never completed: it must be hidden from everyone.
-    /// </summary>
+    // One of each status on INS-002, plus an unfinished upload that must be hidden.
     private async Task AddMixedDocumentsToInspection2Async()
     {
         await database.AddUserAsync(FirmUser, Harbourview);

@@ -6,7 +6,7 @@
             <NotAuthorized>
                 @if (context.User.Identity?.IsAuthenticated == true)
                 {
-                    @* Signed in, but not allowed (e.g. an inspector opening /review). *@
+                    @* Signed in, but not allowed. *@
                     <AccessDenied />
                 }
                 else

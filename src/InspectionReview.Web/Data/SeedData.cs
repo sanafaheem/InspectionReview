@@ -4,12 +4,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace InspectionReview.Web.Data;
 
-/// <summary>
-/// Development seed data that needs UserManager (users, role membership) or depends on
-/// user Ids (inspection assignments, recusals, documents). Roles, firms, inspections and
-/// document types are seeded with HasData
-/// in <see cref="AppDbContext"/>. Safe to run on every startup: nothing is added twice.
-/// </summary>
+/// <summary>Development seed data that needs users. Safe to run on every startup.</summary>
 public static class SeedData
 {
     public const string FirmUser1Id = "a1c4e8f2-3b6d-4f90-8e21-7d5c9b0a1f01";
@@ -18,7 +13,6 @@ public static class SeedData
     public const string InspectorOneInspectionId = "a1c4e8f2-3b6d-4f90-8e21-7d5c9b0a1f04";
     public const string ReviewerId = "a1c4e8f2-3b6d-4f90-8e21-7d5c9b0a1f05";
 
-    /// <summary>Configuration key for the password given to every seeded user.</summary>
     public const string PasswordConfigKey = "SeedUsers:Password";
 
     private sealed record SeedUser(string Id, string Email, string DisplayName, string Role, int? FirmId);
@@ -32,7 +26,7 @@ public static class SeedData
         new(ReviewerId, "hannah.cole@inspections.example", "Hannah Cole", AppRoles.Reviewer, FirmId: null),
     ];
 
-    // (InspectionId, InspectorId). Inspection Ids match the HasData seed in AppDbContext.
+    // (InspectionId, InspectorId)
     private static readonly (int InspectionId, string InspectorId)[] Assignments =
     [
         (1, InspectorTwoInspectionsId),
@@ -40,8 +34,7 @@ public static class SeedData
         (2, InspectorOneInspectionId),
     ];
 
-    // (InspectorId, FirmId). Priya is recused from Northgate (firm 2), so she can edit INS-001
-    // but only view INS-003, even though she is assigned to both.
+    // (InspectorId, FirmId). Priya is recused from Northgate, so INS-003 is view-only for her.
     private static readonly (string InspectorId, int FirmId)[] Recusals =
     [
         (InspectorTwoInspectionsId, 2),
@@ -71,17 +64,13 @@ public static class SeedData
         await EnsureDocumentsAsync(db, cancellationToken);
     }
 
-    // Document type Ids match the HasData seed in AppDbContext.
+    // Document type Ids from HasData.
     private const int FinancialStatement = 1;
     private const int License = 2;
     private const int Policy = 3;
     private const int Other = 4;
 
-    /// <summary>
-    /// Two documents per inspection, uploaded by that inspection's firm user. Mostly Accepted,
-    /// plus one Rejected (with a reason) and one PendingCheck, both on INS-002.
-    /// Fixed keys and dates keep the seed identical on every machine.
-    /// </summary>
+    // Two per inspection. INS-002 has the Rejected and PendingCheck examples.
     private static async Task EnsureDocumentsAsync(AppDbContext db, CancellationToken cancellationToken)
     {
         if (await db.Documents.AnyAsync(cancellationToken))
@@ -109,7 +98,7 @@ public static class SeedData
                 Status = DocumentStatus.Accepted, UploadConfirmed = true,
                 UploadedById = FirmUser1Id, UploadedAt = Utc(10, 7),
             },
-            // INS-002, Harbourview (Olivia): the rejected and pending examples
+            // INS-002, Harbourview (Olivia)
             new Document
             {
                 DocumentKey = Guid.Parse("d0c5e1a0-0000-4000-8000-000000000003"),
@@ -155,8 +144,7 @@ public static class SeedData
 
         if (user is null)
         {
-            // Guard against duplicates: a different account may already use this email or
-            // user name (for example one registered by hand). Never create a second one.
+            // Never create a second account with the same email or user name.
             var existing = await userManager.FindByEmailAsync(seed.Email)
                 ?? await userManager.FindByNameAsync(seed.Email);
             if (existing is not null)
@@ -178,7 +166,7 @@ public static class SeedData
             ThrowIfFailed(await userManager.CreateAsync(user, password), $"create user '{seed.Email}'");
         }
 
-        // Checked separately so a run that failed between the two steps is completed next time.
+        // Checked separately so a run that failed halfway is completed next time.
         if (!await userManager.IsInRoleAsync(user, seed.Role))
         {
             ThrowIfFailed(await userManager.AddToRoleAsync(user, seed.Role), $"add '{seed.Email}' to role {seed.Role}");

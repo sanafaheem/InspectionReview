@@ -5,11 +5,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace InspectionReview.Web.Data;
 
-/// <summary>
-/// EF Core database context, including the ASP.NET Core Identity tables.
-/// Services use this directly (no repository layer).
-/// Column lengths are set with attributes on the Domain classes; relationships and indexes are here.
-/// </summary>
+// Column lengths are attributes on the Domain classes; relationships and indexes are here.
 public class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbContext<AppUser>(options)
 {
     public DbSet<Firm> Firms => Set<Firm>();
@@ -18,6 +14,8 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbCo
     public DbSet<Recusal> Recusals => Set<Recusal>();
     public DbSet<DocumentType> DocumentTypes => Set<DocumentType>();
     public DbSet<Document> Documents => Set<Document>();
+    public DbSet<Finding> Findings => Set<Finding>();
+    public DbSet<FindingDocument> FindingDocuments => Set<FindingDocument>();
 
     public const string FirmUserRoleId = "6f1d2c3a-1b7e-4c55-9a0e-2f7b8d1e4a01";
     public const string InspectorRoleId = "6f1d2c3a-1b7e-4c55-9a0e-2f7b8d1e4a02";
@@ -45,7 +43,6 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbCo
 
         builder.Entity<InspectionAssignment>(assignment =>
         {
-            // Composite key: an inspector can be assigned to a given inspection only once.
             assignment.HasKey(a => new { a.InspectionId, a.InspectorId });
             assignment.HasOne(a => a.Inspection)
                 .WithMany(i => i.Assignments)
@@ -67,18 +64,15 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbCo
                 .WithMany(f => f.Recusals)
                 .HasForeignKey(r => r.FirmId)
                 .OnDelete(DeleteBehavior.Restrict);
-            // An inspector is recused from a given firm at most once.
             recusal.HasIndex(r => new { r.InspectorId, r.FirmId }).IsUnique();
         });
 
         builder.Entity<Document>(document =>
         {
-            // Store the enum as its name ("Accepted") rather than a number, so the data reads
-            // clearly and reordering the enum can't silently change stored values.
+            // Stored as text, so reordering the enum can't change stored values.
             document.Property(d => d.Status).HasConversion<string>();
             document.HasIndex(d => d.DocumentKey).IsUnique();
 
-            // Documents are records: block deleting anything they still point to.
             document.HasOne(d => d.Inspection)
                 .WithMany(i => i.Documents)
                 .HasForeignKey(d => d.InspectionId)
@@ -93,15 +87,37 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbCo
                 .OnDelete(DeleteBehavior.Restrict);
         });
 
+        builder.Entity<Finding>(finding =>
+        {
+            finding.Property(f => f.State).HasConversion<string>();
+            finding.HasOne(f => f.Inspection)
+                .WithMany(i => i.Findings)
+                .HasForeignKey(f => f.InspectionId)
+                .OnDelete(DeleteBehavior.Restrict);
+            finding.HasOne(f => f.CreatedBy)
+                .WithMany()
+                .HasForeignKey(f => f.CreatedById)
+                .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        builder.Entity<FindingDocument>(link =>
+        {
+            link.HasKey(fd => new { fd.FindingId, fd.DocumentId });
+            link.HasOne(fd => fd.Finding)
+                .WithMany(f => f.Documents)
+                .HasForeignKey(fd => fd.FindingId)
+                .OnDelete(DeleteBehavior.Cascade);
+            link.HasOne(fd => fd.Document)
+                .WithMany()
+                .HasForeignKey(fd => fd.DocumentId)
+                .OnDelete(DeleteBehavior.Restrict);
+        });
+
         SeedReferenceData(builder);
     }
 
-    /// <summary>
-    /// Fixed data that ships with the migrations: roles, firms, inspections and document types.
-    /// Every value is hard-coded (including role ConcurrencyStamps) so the model never changes
-    /// between builds and no empty migrations get generated. Users and inspection assignments
-    /// are seeded at startup by <see cref="SeedData"/> instead, because they need UserManager.
-    /// </summary>
+    // Every value is hard-coded (even ConcurrencyStamps) so no empty migrations get generated.
+    // Anything that needs users is seeded at startup by SeedData instead.
     private static void SeedReferenceData(ModelBuilder builder)
     {
         builder.Entity<IdentityRole>().HasData(

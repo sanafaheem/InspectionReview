@@ -1,0 +1,66 @@
+@* Collects input only; the page calls FindingService. *@
+
+<div class="mb-3">
+    <label for="finding-title" class="form-label">Title</label>
+    <input id="finding-title" class="form-control" maxlength="@FindingService.TitleMaxLength"
+           @bind="Model.Title" disabled="@Busy" />
+</div>
+
+<fieldset class="mb-3">
+    <legend class="form-label fs-6">Supporting documents</legend>
+    @if (AvailableDocuments.Count == 0)
+    {
+        <p class="text-muted small">This inspection has no accepted documents to link.</p>
+    }
+    else
+    {
+        @foreach (var document in AvailableDocuments)
+        {
+            <div class="form-check">
+                <input type="checkbox" class="form-check-input" id="document-@document.Id"
+                       checked="@Model.DocumentIds.Contains(document.Id)" disabled="@Busy"
+                       @onchange="e => Toggle(document.Id, e.Value is true)" />
+                <label class="form-check-label" for="document-@document.Id">
+                    @document.FileName <span class="text-muted">(@document.DocumentType)</span>
+                </label>
+            </div>
+        }
+    }
+</fieldset>
+
+<div class="mb-3">
+    <label for="finding-text" class="form-label">Finding</label>
+    <textarea id="finding-text" class="form-control" rows="8" @bind="Model.Text" disabled="@Busy"></textarea>
+</div>
+
+<button type="button" class="btn btn-outline-primary me-2" disabled="@Busy" @onclick="OnSaveDraft">Save draft</button>
+<button type="button" class="btn btn-primary" disabled="@Busy" @onclick="OnSubmit">Submit for review</button>
+
+@code {
+    [Parameter, EditorRequired]
+    public FindingFormModel Model { get; set; } = default!;
+
+    [Parameter, EditorRequired]
+    public IReadOnlyList<FindingDocumentOption> AvailableDocuments { get; set; } = [];
+
+    [Parameter]
+    public bool Busy { get; set; }
+
+    [Parameter]
+    public EventCallback OnSaveDraft { get; set; }
+
+    [Parameter]
+    public EventCallback OnSubmit { get; set; }
+
+    private void Toggle(int documentId, bool isChecked)
+    {
+        if (isChecked)
+        {
+            Model.DocumentIds.Add(documentId);
+        }
+        else
+        {
+            Model.DocumentIds.Remove(documentId);
+        }
+    }
+}
