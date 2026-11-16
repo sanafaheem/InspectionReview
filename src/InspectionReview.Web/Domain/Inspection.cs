@@ -17,4 +17,5 @@ public class Inspection
     public Firm? Firm { get; set; }
 
     public ICollection<InspectionAssignment> Assignments { get; set; } = [];
+    public ICollection<Document> Documents { get; set; } = [];
 }
