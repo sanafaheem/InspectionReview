@@ -1,0 +1,15 @@
+<span class="badge @Css">@State</span>
+
+@code {
+    [Parameter, EditorRequired]
+    public FindingState State { get; set; }
+
+    private string Css => State switch
+    {
+        FindingState.Draft => "bg-secondary",
+        FindingState.Submitted => "bg-primary",
+        FindingState.Returned => "bg-warning text-dark",
+        FindingState.Approved => "bg-success",
+        _ => "bg-light text-dark",
+    };
+}

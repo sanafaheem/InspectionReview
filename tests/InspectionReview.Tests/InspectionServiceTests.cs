@@ -5,21 +5,13 @@ using Xunit.Abstractions;
 
 namespace InspectionReview.Tests;
 
-/// <summary>
-/// Visibility rules for InspectionService, run against a real (SQLite in-memory) database so the
-/// AccessPolicy filter is tested as SQL, not just as C#.
-///
-/// Seed data from HasData, present in every test:
-///   Firm 1 Harbourview Property Group: INS-001 (Id 1), INS-002 (Id 2)
-///   Firm 2 Northgate Facilities Ltd:   INS-003 (Id 3)
-/// xUnit creates a new instance of this class per test, so each test gets a fresh database.
-/// </summary>
+// Seed: firm 1 has INS-001 and INS-002, firm 2 has INS-003. Each test gets a fresh database.
 public sealed class InspectionServiceTests(ITestOutputHelper output) : IDisposable
 {
     private const int Harbourview = 1;
     private const int Northgate = 2;
 
-    // Run `dotnet test --logger "console;verbosity=detailed"` to see the SQL EF generates.
+    // To see the SQL: dotnet test --logger "console;verbosity=detailed"
     private readonly TestDatabase database = new(output.WriteLine);
 
     public void Dispose() => database.Dispose();
@@ -33,7 +25,6 @@ public sealed class InspectionServiceTests(ITestOutputHelper output) : IDisposab
 
         Assert.Equal(new[] { "INS-001", "INS-002" }, items.Select(i => i.Reference));
         Assert.All(items, i => Assert.Equal("Harbourview Property Group", i.FirmName));
-        // Not an inspector, so no assignment status (the Status column is hidden).
         Assert.All(items, i => Assert.Null(i.Status));
     }
 
@@ -80,17 +71,16 @@ public sealed class InspectionServiceTests(ITestOutputHelper output) : IDisposab
 
         Assert.Equal(new[] { "INS-001", "INS-002", "INS-003" }, items.Keys.Order());
 
-        // Assigned to me, firm I'm not recused from.
         Assert.True(items["INS-001"].IsAssigned);
         Assert.False(items["INS-001"].IsRecused);
         Assert.Equal(AssignmentStatus.Assigned, items["INS-001"].Status);
 
-        // Only my colleague is assigned, and only my colleague is recused from Harbourview.
+        // Only my colleague is assigned and recused here.
         Assert.False(items["INS-002"].IsAssigned);
         Assert.False(items["INS-002"].IsRecused);
         Assert.Equal(AssignmentStatus.NotAssigned, items["INS-002"].Status);
 
-        // Assigned to me, but I'm recused from Northgate: Recused takes priority.
+        // Assigned, but recused: Recused wins.
         Assert.True(items["INS-003"].IsAssigned);
         Assert.True(items["INS-003"].IsRecused);
         Assert.Equal(AssignmentStatus.Recused, items["INS-003"].Status);

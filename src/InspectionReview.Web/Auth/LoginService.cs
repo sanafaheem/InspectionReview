@@ -8,9 +8,8 @@ namespace InspectionReview.Web.Auth;
 public sealed record LoginOption(string UserId, string DisplayName, string Email, string Role);
 
 /// <summary>
-/// Role switcher: sign in as any seeded user without a password (Development only), and sign out.
-/// Sign-in and sign-out write the auth cookie, so they must run during an HTTP request:
-/// the static SSR Login page and the /auth/logout endpoint.
+/// Password-less role switcher (Development only). Writes the auth cookie, so it must run during
+/// an HTTP request: the static Login page and the /auth/logout endpoint.
 /// </summary>
 public sealed class LoginService(
     IDbContextFactory<AppDbContext> dbFactory,
@@ -30,7 +29,7 @@ public sealed class LoginService(
             .ToListAsync(cancellationToken);
     }
 
-    /// <summary>Signs in as the given user. Returns false if the user doesn't exist.</summary>
+    /// <summary>Returns false if the user doesn't exist.</summary>
     public async Task<bool> SignInAsync(string userId)
     {
         if (!environment.IsDevelopment())
@@ -44,15 +43,13 @@ public sealed class LoginService(
             return false;
         }
 
-        // Writes the auth cookie (user Id + role claims) onto the HTTP response.
         await signInManager.SignInAsync(user, isPersistent: false);
         return true;
     }
 
-    /// <summary>Removes the auth cookie.</summary>
     public Task LogoutAsync() => signInManager.SignOutAsync();
 
-    /// <summary>Only redirect back into this app, never to another site (open-redirect protection).</summary>
+    // Only local URLs, to prevent open redirects.
     public static string SafeReturnUrl(string? returnUrl) =>
         !string.IsNullOrEmpty(returnUrl)
         && returnUrl.StartsWith('/')

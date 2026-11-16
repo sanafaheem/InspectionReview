@@ -4,10 +4,7 @@ using NSubstitute;
 
 namespace InspectionReview.Tests;
 
-/// <summary>
-/// Builds a substitute ICurrentUser. Always go through this helper: an unconfigured substitute
-/// returns null ("signed out"), which could make a test pass for the wrong reason.
-/// </summary>
+// Always use As(): an unconfigured substitute returns null ("signed out"), hiding mistakes.
 public static class TestUsers
 {
     public static ICurrentUser As(CurrentUserInfo? user)
@@ -22,4 +19,7 @@ public static class TestUsers
 
     public static CurrentUserInfo Inspector(string userId) =>
         new(userId, "Test Inspector", [AppRoles.Inspector], FirmId: null);
+
+    public static CurrentUserInfo Reviewer(string userId = "reviewer") =>
+        new(userId, "Test Reviewer", [AppRoles.Reviewer], FirmId: null);
 }

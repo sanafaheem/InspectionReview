@@ -1,0 +1,149 @@
+@page "/findings/{Id:int}"
+@inject FindingService FindingService
+
+<PageTitle>@(string.IsNullOrWhiteSpace(finding?.Title) ? "Finding" : finding.Title)</PageTitle>
+
+@if (!loaded)
+{
+    <p><em>Loading…</em></p>
+}
+else if (finding is null)
+{
+    <h1>Finding not found</h1>
+    <p><a href="">← Back to inspections</a></p>
+}
+else
+{
+    <p><a href="inspections/@finding.InspectionId">← Back to @finding.InspectionReference</a></p>
+
+    <h1>
+        @(string.IsNullOrWhiteSpace(finding.Title) ? "(untitled)" : finding.Title)
+        <FindingStateBadge State="finding.State" />
+    </h1>
+    <p class="text-muted small">
+        @finding.InspectionReference · created by @finding.CreatedBy on @finding.CreatedAt.ToString("yyyy-MM-dd")
+        · updated @finding.UpdatedAt.ToString("yyyy-MM-dd HH:mm") UTC
+    </p>
+
+    @if (finding.ReturnComment is not null && finding.State == FindingState.Returned)
+    {
+        <div class="alert alert-warning">
+            <p class="mb-2"><strong>Returned by the reviewer:</strong> @finding.ReturnComment</p>
+            @if (finding.CanRevise)
+            {
+                <button type="button" class="btn btn-warning" disabled="@busy" @onclick="ReviseAsync">Revise</button>
+            }
+        </div>
+    }
+    else if (finding.ReturnComment is not null && finding.State == FindingState.Draft)
+    {
+        <div class="alert alert-info">
+            <strong>Reviewer's comment on the last submission:</strong> @finding.ReturnComment
+        </div>
+    }
+
+    @if (statusMessage is not null)
+    {
+        <div class="alert alert-success">@statusMessage</div>
+    }
+    @if (errorMessage is not null)
+    {
+        <div class="alert alert-danger">@errorMessage</div>
+    }
+
+    @if (finding.CanEdit)
+    {
+        <FindingForm Model="model" AvailableDocuments="finding.AvailableDocuments" Busy="busy"
+                     OnSaveDraft="SaveDraftAsync" OnSubmit="SubmitAsync" />
+    }
+    else
+    {
+        <h2 class="h5">Supporting documents</h2>
+        @if (finding.LinkedDocuments.Count == 0)
+        {
+            <p class="text-muted">None linked.</p>
+        }
+        else
+        {
+            <ul>
+                @foreach (var document in finding.LinkedDocuments)
+                {
+                    <li>@document.FileName <span class="text-muted">(@document.DocumentType)</span></li>
+                }
+            </ul>
+        }
+
+        <h2 class="h5">Finding</h2>
+        <p style="white-space: pre-wrap">@(string.IsNullOrWhiteSpace(finding.Text) ? "(no text yet)" : finding.Text)</p>
+    }
+}
+
+@code {
+    [Parameter]
+    public int Id { get; set; }
+
+    private FindingDetail? finding;
+    private FindingFormModel model = new();
+    private bool loaded;
+    private bool busy;
+    private string? errorMessage;
+    private string? statusMessage;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        loaded = false;
+        errorMessage = null;
+        statusMessage = null;
+        await LoadAsync();
+        loaded = true;
+    }
+
+    private async Task LoadAsync()
+    {
+        finding = await FindingService.GetFindingAsync(Id);
+        if (finding is not null)
+        {
+            model = new FindingFormModel
+            {
+                Title = finding.Title,
+                Text = finding.Text,
+                DocumentIds = finding.LinkedDocuments.Select(d => d.Id).ToHashSet(),
+            };
+        }
+    }
+
+    private Task SaveDraftAsync() => RunAsync("Draft saved.", () =>
+        FindingService.UpdateDraftAsync(Id, model.Title, model.Text, model.DocumentIds));
+
+    // Save first, so what's submitted is what's on screen.
+    private Task SubmitAsync() => RunAsync("Submitted for review.", async () =>
+    {
+        await FindingService.UpdateDraftAsync(Id, model.Title, model.Text, model.DocumentIds);
+        await FindingService.SubmitAsync(Id);
+    });
+
+    private Task ReviseAsync() => RunAsync("Back in Draft. Make your changes, then submit again.", () =>
+        FindingService.ReviseAsync(Id));
+
+    // Show refusals as a message instead of crashing the circuit.
+    private async Task RunAsync(string successMessage, Func<Task> action)
+    {
+        busy = true;
+        errorMessage = null;
+        statusMessage = null;
+        try
+        {
+            await action();
+            await LoadAsync();
+            statusMessage = successMessage;
+        }
+        catch (Exception ex) when (ex is UnauthorizedAccessException or ArgumentException or InvalidOperationException)
+        {
+            errorMessage = ex.Message;
+        }
+        finally
+        {
+            busy = false;
+        }
+    }
+}

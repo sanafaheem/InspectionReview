@@ -6,7 +6,7 @@ public class Inspection
 {
     public int Id { get; set; }
 
-    /// <summary>Human-readable, unique reference, e.g. "INS-001".</summary>
+    // Unique, e.g. "INS-001".
     [MaxLength(20)]
     public required string Reference { get; set; }
 
@@ -18,4 +18,5 @@ public class Inspection
 
     public ICollection<InspectionAssignment> Assignments { get; set; } = [];
     public ICollection<Document> Documents { get; set; } = [];
+    public ICollection<Finding> Findings { get; set; } = [];
 }

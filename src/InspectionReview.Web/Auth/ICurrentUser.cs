@@ -10,7 +10,6 @@ public interface ICurrentUser
     Task<CurrentUserInfo?> GetAsync(CancellationToken cancellationToken = default);
 }
 
-/// <summary>Snapshot of the signed-in user. FirmId is set only for firm users.</summary>
 public sealed record CurrentUserInfo(string UserId, string DisplayName, IReadOnlyList<string> Roles, int? FirmId)
 {
     public bool IsInRole(string role) => Roles.Contains(role);

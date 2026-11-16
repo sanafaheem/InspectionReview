@@ -62,7 +62,7 @@ else
 
         items = await InspectionService.GetInspectionsAsync();
 
-        // Only inspectors' rows have a Status, so firm users never see this column.
+        // Only inspectors' rows have a Status.
         showStatus = items.Any(i => i.Status is not null);
     }
 

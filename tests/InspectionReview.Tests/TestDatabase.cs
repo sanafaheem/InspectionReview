@@ -5,17 +5,12 @@ using Microsoft.EntityFrameworkCore;
 
 namespace InspectionReview.Tests;
 
-/// <summary>
-/// A throwaway SQLite in-memory database with the app's full schema and HasData seed
-/// (roles, 2 firms, INS-001 to INS-003). The database lives as long as this object:
-/// an in-memory SQLite database is deleted when its connection closes.
-/// </summary>
+/// <summary>SQLite in-memory database with the full schema and HasData seed. Lives as long as its connection.</summary>
 public sealed class TestDatabase : IDisposable
 {
     private readonly SqliteConnection connection;
     private readonly DbContextOptions<AppDbContext> options;
 
-    /// <param name="log">Optional sink for EF's SQL logging, e.g. xUnit's ITestOutputHelper.WriteLine.</param>
     public TestDatabase(Action<string>? log = null)
     {
         connection = new SqliteConnection("DataSource=:memory:");
@@ -28,22 +23,19 @@ public sealed class TestDatabase : IDisposable
         }
         options = builder.Options;
 
-        // Builds the tables from the model (not from the SQL Server migrations), including HasData rows.
+        // From the model, not the SQL Server migrations.
         using var db = CreateContext();
         db.Database.EnsureCreated();
 
         Factory = new ContextFactory(this);
     }
 
-    /// <summary>Give this to services that take IDbContextFactory. Every context shares the same database.</summary>
     public IDbContextFactory<AppDbContext> Factory { get; }
 
-    /// <summary>A new context on the shared connection, for arranging test data. Dispose it after use.</summary>
     public AppDbContext CreateContext() => new(options);
 
     public void Dispose() => connection.Dispose();
 
-    // Arrange helpers. Each saves immediately on its own context.
 
     public async Task AddUserAsync(string userId, int? firmId = null)
     {
@@ -71,11 +63,11 @@ public sealed class TestDatabase : IDisposable
         await db.SaveChangesAsync();
     }
 
-    public async Task AddDocumentAsync(
+    public async Task<int> AddDocumentAsync(
         int inspectionId, string uploadedById, string fileName, DocumentStatus status, bool uploadConfirmed = true)
     {
         await using var db = CreateContext();
-        db.Documents.Add(new Document
+        var document = new Document
         {
             DocumentKey = Guid.NewGuid(),
             InspectionId = inspectionId,
@@ -87,8 +79,10 @@ public sealed class TestDatabase : IDisposable
             UploadConfirmed = uploadConfirmed,
             UploadedById = uploadedById,
             UploadedAt = DateTime.UtcNow,
-        });
+        };
+        db.Documents.Add(document);
         await db.SaveChangesAsync();
+        return document.Id;
     }
 
     public async Task<DateTime?> IndependenceConfirmedAtAsync(int inspectionId, string inspectorId)
