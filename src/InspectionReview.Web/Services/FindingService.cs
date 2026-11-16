@@ -30,7 +30,17 @@ public sealed record FindingDetail(
     IReadOnlyList<FindingDocumentOption> LinkedDocuments,
     IReadOnlyList<FindingDocumentOption> AvailableDocuments,
     bool CanEdit,
-    bool CanRevise);
+    bool CanRevise,
+    bool CanApprove,
+    bool CanReturn);
+
+public sealed record ReviewQueueItem(
+    int Id,
+    string Title,
+    string InspectionReference,
+    string FirmName,
+    string SubmittedBy,
+    DateTime SubmittedAt);
 
 /// <summary>
 /// Each action checks access (UnauthorizedAccessException), then input (ArgumentException),
@@ -58,6 +68,29 @@ public sealed class FindingService(
             .Where(f => f.InspectionId == inspectionId)
             .OrderByDescending(f => f.UpdatedAt)
             .Select(f => new FindingListItem(f.Id, f.Title, f.State, f.UpdatedAt))
+            .ToListAsync(cancellationToken);
+    }
+
+    /// <summary>Reviewers only: every Submitted finding, longest waiting first.</summary>
+    public async Task<IReadOnlyList<ReviewQueueItem>> GetReviewQueueAsync(CancellationToken cancellationToken = default)
+    {
+        if (!await accessPolicy.CanReviewAsync())
+        {
+            throw new UnauthorizedAccessException("Only reviewers can see the review queue.");
+        }
+
+        await using var db = await dbFactory.CreateDbContextAsync(cancellationToken);
+        return await db.Findings
+            .AsNoTracking()
+            .Where(f => f.State == FindingState.Submitted)
+            .OrderBy(f => f.SubmittedAt)
+            .Select(f => new ReviewQueueItem(
+                f.Id,
+                f.Title,
+                f.Inspection!.Reference,
+                f.Inspection.Firm!.Name,
+                f.SubmittedBy!.DisplayName,
+                f.SubmittedAt!.Value))
             .ToListAsync(cancellationToken);
     }
 
@@ -113,7 +146,9 @@ public sealed class FindingService(
             finding.LinkedDocuments,
             available,
             access.CanEdit,
-            access.CanRevise);
+            access.CanRevise,
+            access.CanApprove,
+            access.CanReturn);
     }
 
     /// <summary>Null if the inspection isn't visible.</summary>
@@ -216,6 +251,8 @@ public sealed class FindingService(
             throw new ArgumentException("A finding needs a title and text before it can be submitted.");
         }
 
+        finding.SubmittedAt = DateTime.UtcNow;
+        finding.SubmittedById = (await currentUser.GetAsync(cancellationToken))!.UserId;
         await TransitionAsync(db, finding, FindingAction.Submit, cancellationToken);
     }
 

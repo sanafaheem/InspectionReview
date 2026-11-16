@@ -1,5 +1,6 @@
 @page "/findings/{Id:int}"
 @inject FindingService FindingService
+@inject NavigationManager Navigation
 
 <PageTitle>@(string.IsNullOrWhiteSpace(finding?.Title) ? "Finding" : finding.Title)</PageTitle>
 
@@ -51,6 +52,29 @@ else
         <div class="alert alert-danger">@errorMessage</div>
     }
 
+    @if (finding.CanApprove || finding.CanReturn)
+    {
+        <div class="card mb-4">
+            <div class="card-body">
+                <h2 class="h5">Review</h2>
+                @if (finding.CanApprove)
+                {
+                    <button type="button" class="btn btn-success mb-3" disabled="@busy" @onclick="ApproveAsync">Approve</button>
+                }
+                @if (finding.CanReturn)
+                {
+                    <label for="return-comment" class="form-label d-block">Return to inspector</label>
+                    <textarea id="return-comment" class="form-control mb-2" rows="3" disabled="@busy"
+                              placeholder="What should the inspector change?"
+                              @bind="returnComment" @bind:event="oninput"></textarea>
+                    <button type="button" class="btn btn-outline-warning" disabled="@busy" @onclick="ReturnAsync">
+                        Return to inspector
+                    </button>
+                }
+            </div>
+        </div>
+    }
+
     @if (finding.CanEdit)
     {
         <FindingForm Model="model" AvailableDocuments="finding.AvailableDocuments" Busy="busy"
@@ -88,6 +112,7 @@ else
     private bool busy;
     private string? errorMessage;
     private string? statusMessage;
+    private string? returnComment;
 
     protected override async Task OnParametersSetAsync()
     {
@@ -126,6 +151,42 @@ else
         FindingService.ReviseAsync(Id));
 
     // Show refusals as a message instead of crashing the circuit.
+    private Task ApproveAsync() => ReviewAsync("approved", () => FindingService.ApproveAsync(Id));
+
+    private Task ReturnAsync()
+    {
+        // Quick message only; the service enforces this too.
+        if (string.IsNullOrWhiteSpace(returnComment))
+        {
+            errorMessage = "Enter a comment for the inspector.";
+            return Task.CompletedTask;
+        }
+
+        return ReviewAsync("returned", () => FindingService.ReturnAsync(Id, returnComment));
+    }
+
+    // On failure (e.g. someone else already approved it), reload so the buttons match the real state.
+    private async Task ReviewAsync(string done, Func<Task> action)
+    {
+        busy = true;
+        errorMessage = null;
+        statusMessage = null;
+        try
+        {
+            await action();
+            Navigation.NavigateTo($"review?done={done}");
+        }
+        catch (Exception ex) when (ex is UnauthorizedAccessException or ArgumentException or InvalidOperationException)
+        {
+            await LoadAsync();
+            errorMessage = ex.Message;
+        }
+        finally
+        {
+            busy = false;
+        }
+    }
+
     private async Task RunAsync(string successMessage, Func<Task> action)
     {
         busy = true;

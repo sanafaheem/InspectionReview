@@ -98,6 +98,10 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbCo
                 .WithMany()
                 .HasForeignKey(f => f.CreatedById)
                 .OnDelete(DeleteBehavior.Restrict);
+            finding.HasOne(f => f.SubmittedBy)
+                .WithMany()
+                .HasForeignKey(f => f.SubmittedById)
+                .OnDelete(DeleteBehavior.Restrict);
         });
 
         builder.Entity<FindingDocument>(link =>

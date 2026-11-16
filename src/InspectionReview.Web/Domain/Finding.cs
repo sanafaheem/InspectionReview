@@ -38,5 +38,12 @@ public class Finding
 
     public DateTime UpdatedAt { get; set; }
 
+    // Set on every submit; null = never submitted. With shared drafts the submitter may not be the creator.
+    public DateTime? SubmittedAt { get; set; }
+
+    [MaxLength(450)]
+    public string? SubmittedById { get; set; }
+    public AppUser? SubmittedBy { get; set; }
+
     public ICollection<FindingDocument> Documents { get; set; } = [];
 }
