@@ -136,7 +136,8 @@ public sealed class ReviewTests : IDisposable
     private FindingService CreateService(CurrentUserInfo user)
     {
         ICurrentUser currentUser = TestUsers.As(user);
-        return new FindingService(database.Factory, new AccessPolicy(currentUser, database.Factory), currentUser);
+        var factory = database.FactoryFor(currentUser);
+        return new FindingService(factory, new AccessPolicy(currentUser, factory), currentUser);
     }
 
     private async Task<FindingState> ReadStateAsync(int findingId)
