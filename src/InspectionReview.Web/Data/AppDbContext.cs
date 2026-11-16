@@ -16,6 +16,8 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbCo
     public DbSet<Inspection> Inspections => Set<Inspection>();
     public DbSet<InspectionAssignment> InspectionAssignments => Set<InspectionAssignment>();
     public DbSet<Recusal> Recusals => Set<Recusal>();
+    public DbSet<DocumentType> DocumentTypes => Set<DocumentType>();
+    public DbSet<Document> Documents => Set<Document>();
 
     public const string FirmUserRoleId = "6f1d2c3a-1b7e-4c55-9a0e-2f7b8d1e4a01";
     public const string InspectorRoleId = "6f1d2c3a-1b7e-4c55-9a0e-2f7b8d1e4a02";
@@ -69,11 +71,33 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbCo
             recusal.HasIndex(r => new { r.InspectorId, r.FirmId }).IsUnique();
         });
 
+        builder.Entity<Document>(document =>
+        {
+            // Store the enum as its name ("Accepted") rather than a number, so the data reads
+            // clearly and reordering the enum can't silently change stored values.
+            document.Property(d => d.Status).HasConversion<string>();
+            document.HasIndex(d => d.DocumentKey).IsUnique();
+
+            // Documents are records: block deleting anything they still point to.
+            document.HasOne(d => d.Inspection)
+                .WithMany(i => i.Documents)
+                .HasForeignKey(d => d.InspectionId)
+                .OnDelete(DeleteBehavior.Restrict);
+            document.HasOne(d => d.DocumentType)
+                .WithMany()
+                .HasForeignKey(d => d.DocumentTypeId)
+                .OnDelete(DeleteBehavior.Restrict);
+            document.HasOne(d => d.UploadedBy)
+                .WithMany()
+                .HasForeignKey(d => d.UploadedById)
+                .OnDelete(DeleteBehavior.Restrict);
+        });
+
         SeedReferenceData(builder);
     }
 
     /// <summary>
-    /// Fixed data that ships with the migrations: roles, firms and inspections.
+    /// Fixed data that ships with the migrations: roles, firms, inspections and document types.
     /// Every value is hard-coded (including role ConcurrencyStamps) so the model never changes
     /// between builds and no empty migrations get generated. Users and inspection assignments
     /// are seeded at startup by <see cref="SeedData"/> instead, because they need UserManager.
@@ -111,5 +135,11 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbCo
             new Inspection { Id = 1, FirmId = 1, Reference = "INS-001", Title = "Annual fire safety inspection" },
             new Inspection { Id = 2, FirmId = 1, Reference = "INS-002", Title = "Roof and gutter condition survey" },
             new Inspection { Id = 3, FirmId = 2, Reference = "INS-003", Title = "Electrical installation check" });
+
+        builder.Entity<DocumentType>().HasData(
+            new DocumentType { Id = 1, Name = "Financial Statement" },
+            new DocumentType { Id = 2, Name = "License" },
+            new DocumentType { Id = 3, Name = "Policy" },
+            new DocumentType { Id = 4, Name = "Other" });
     }
 }

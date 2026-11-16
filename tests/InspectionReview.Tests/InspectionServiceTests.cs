@@ -42,8 +42,8 @@ public sealed class InspectionServiceTests(ITestOutputHelper output) : IDisposab
     {
         var service = CreateService(TestUsers.FirmUser(Harbourview));
 
-        var otherFirms = await service.GetInspectionAsync(3);   // INS-003 belongs to Northgate
-        var ownFirms = await service.GetInspectionAsync(1);     // proves the null isn't a broken setup
+        var otherFirms = await service.GetInspectionDetailAsync(3);   // INS-003 belongs to Northgate
+        var ownFirms = await service.GetInspectionDetailAsync(1);     // proves the null isn't a broken setup
 
         Assert.Null(otherFirms);
         Assert.NotNull(ownFirms);
@@ -99,6 +99,6 @@ public sealed class InspectionServiceTests(ITestOutputHelper output) : IDisposab
     private InspectionService CreateService(CurrentUserInfo user)
     {
         ICurrentUser currentUser = TestUsers.As(user);
-        return new InspectionService(database.Factory, new AccessPolicy(currentUser), currentUser);
+        return new InspectionService(database.Factory, new AccessPolicy(currentUser, database.Factory), currentUser);
     }
 }

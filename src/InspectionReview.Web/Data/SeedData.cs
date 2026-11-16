@@ -6,7 +6,8 @@ namespace InspectionReview.Web.Data;
 
 /// <summary>
 /// Development seed data that needs UserManager (users, role membership) or depends on
-/// user Ids (inspection assignments). Roles, firms and inspections are seeded with HasData
+/// user Ids (inspection assignments, recusals, documents). Roles, firms, inspections and
+/// document types are seeded with HasData
 /// in <see cref="AppDbContext"/>. Safe to run on every startup: nothing is added twice.
 /// </summary>
 public static class SeedData
@@ -67,6 +68,85 @@ public static class SeedData
 
         await EnsureAssignmentsAsync(db, cancellationToken);
         await EnsureRecusalsAsync(db, cancellationToken);
+        await EnsureDocumentsAsync(db, cancellationToken);
+    }
+
+    // Document type Ids match the HasData seed in AppDbContext.
+    private const int FinancialStatement = 1;
+    private const int License = 2;
+    private const int Policy = 3;
+    private const int Other = 4;
+
+    /// <summary>
+    /// Two documents per inspection, uploaded by that inspection's firm user. Mostly Accepted,
+    /// plus one Rejected (with a reason) and one PendingCheck, both on INS-002.
+    /// Fixed keys and dates keep the seed identical on every machine.
+    /// </summary>
+    private static async Task EnsureDocumentsAsync(AppDbContext db, CancellationToken cancellationToken)
+    {
+        if (await db.Documents.AnyAsync(cancellationToken))
+        {
+            return;
+        }
+
+        static DateTime Utc(int month, int day) => new(2026, month, day, 9, 30, 0, DateTimeKind.Utc);
+
+        db.Documents.AddRange(
+            // INS-001, Harbourview (Olivia)
+            new Document
+            {
+                DocumentKey = Guid.Parse("d0c5e1a0-0000-4000-8000-000000000001"),
+                InspectionId = 1, DocumentTypeId = FinancialStatement,
+                FileName = "Harbourview 2025 Accounts.pdf", SizeBytes = 482_133,
+                Status = DocumentStatus.Accepted, UploadConfirmed = true,
+                UploadedById = FirmUser1Id, UploadedAt = Utc(10, 6),
+            },
+            new Document
+            {
+                DocumentKey = Guid.Parse("d0c5e1a0-0000-4000-8000-000000000002"),
+                InspectionId = 1, DocumentTypeId = Policy,
+                FileName = "Fire Safety Policy.pdf", SizeBytes = 215_870,
+                Status = DocumentStatus.Accepted, UploadConfirmed = true,
+                UploadedById = FirmUser1Id, UploadedAt = Utc(10, 7),
+            },
+            // INS-002, Harbourview (Olivia): the rejected and pending examples
+            new Document
+            {
+                DocumentKey = Guid.Parse("d0c5e1a0-0000-4000-8000-000000000003"),
+                InspectionId = 2, DocumentTypeId = License,
+                FileName = "Roofing Contractor License.pdf", SizeBytes = 98_402,
+                Status = DocumentStatus.Rejected,
+                RejectionReason = "License expired on 31 March 2026. Please upload the current license.",
+                UploadConfirmed = true,
+                UploadedById = FirmUser1Id, UploadedAt = Utc(10, 14),
+            },
+            new Document
+            {
+                DocumentKey = Guid.Parse("d0c5e1a0-0000-4000-8000-000000000004"),
+                InspectionId = 2, DocumentTypeId = Other,
+                FileName = "Gutter Maintenance Log.xlsx", SizeBytes = 34_516,
+                Status = DocumentStatus.PendingCheck, UploadConfirmed = true,
+                UploadedById = FirmUser1Id, UploadedAt = Utc(11, 2),
+            },
+            // INS-003, Northgate (Marcus)
+            new Document
+            {
+                DocumentKey = Guid.Parse("d0c5e1a0-0000-4000-8000-000000000005"),
+                InspectionId = 3, DocumentTypeId = FinancialStatement,
+                FileName = "Northgate 2025 Financial Statement.pdf", SizeBytes = 611_904,
+                Status = DocumentStatus.Accepted, UploadConfirmed = true,
+                UploadedById = FirmUser2Id, UploadedAt = Utc(9, 22),
+            },
+            new Document
+            {
+                DocumentKey = Guid.Parse("d0c5e1a0-0000-4000-8000-000000000006"),
+                InspectionId = 3, DocumentTypeId = License,
+                FileName = "Electrical Contractor License.pdf", SizeBytes = 120_377,
+                Status = DocumentStatus.Accepted, UploadConfirmed = true,
+                UploadedById = FirmUser2Id, UploadedAt = Utc(9, 23),
+            });
+
+        await db.SaveChangesAsync(cancellationToken);
     }
 
     private static async Task EnsureUserAsync(UserManager<AppUser> userManager, SeedUser seed, string password)

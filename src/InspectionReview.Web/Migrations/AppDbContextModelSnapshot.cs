@@ -17,7 +17,7 @@ namespace InspectionReview.Web.Migrations
         {
 #pragma warning disable 612, 618
             modelBuilder
-                .HasAnnotation("ProductVersion", "9.0.22")
+                .HasAnnotation("ProductVersion", "9.0.23")
                 .HasAnnotation("Relational:MaxIdentifierLength", 128);
 
             SqlServerModelBuilderExtensions.UseIdentityColumns(modelBuilder);
@@ -95,6 +95,105 @@ namespace InspectionReview.Web.Migrations
                         .HasFilter("[NormalizedUserName] IS NOT NULL");
 
                     b.ToTable("AspNetUsers", (string)null);
+                });
+
+            modelBuilder.Entity("InspectionReview.Web.Domain.Document", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<Guid>("DocumentKey")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<int>("DocumentTypeId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("FileName")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("nvarchar(255)");
+
+                    b.Property<int>("InspectionId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("RejectionReason")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.Property<long>("SizeBytes")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
+                    b.Property<bool>("UploadConfirmed")
+                        .HasColumnType("bit");
+
+                    b.Property<DateTime>("UploadedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("UploadedById")
+                        .IsRequired()
+                        .HasMaxLength(450)
+                        .HasColumnType("nvarchar(450)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("DocumentKey")
+                        .IsUnique();
+
+                    b.HasIndex("DocumentTypeId");
+
+                    b.HasIndex("InspectionId");
+
+                    b.HasIndex("UploadedById");
+
+                    b.ToTable("Documents");
+                });
+
+            modelBuilder.Entity("InspectionReview.Web.Domain.DocumentType", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("DocumentTypes");
+
+                    b.HasData(
+                        new
+                        {
+                            Id = 1,
+                            Name = "Financial Statement"
+                        },
+                        new
+                        {
+                            Id = 2,
+                            Name = "License"
+                        },
+                        new
+                        {
+                            Id = 3,
+                            Name = "Policy"
+                        },
+                        new
+                        {
+                            Id = 4,
+                            Name = "Other"
+                        });
                 });
 
             modelBuilder.Entity("InspectionReview.Web.Domain.Firm", b =>
@@ -395,6 +494,33 @@ namespace InspectionReview.Web.Migrations
                     b.Navigation("Firm");
                 });
 
+            modelBuilder.Entity("InspectionReview.Web.Domain.Document", b =>
+                {
+                    b.HasOne("InspectionReview.Web.Domain.DocumentType", "DocumentType")
+                        .WithMany()
+                        .HasForeignKey("DocumentTypeId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("InspectionReview.Web.Domain.Inspection", "Inspection")
+                        .WithMany("Documents")
+                        .HasForeignKey("InspectionId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("InspectionReview.Web.Domain.AppUser", "UploadedBy")
+                        .WithMany()
+                        .HasForeignKey("UploadedById")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("DocumentType");
+
+                    b.Navigation("Inspection");
+
+                    b.Navigation("UploadedBy");
+                });
+
             modelBuilder.Entity("InspectionReview.Web.Domain.Inspection", b =>
                 {
                     b.HasOne("InspectionReview.Web.Domain.Firm", "Firm")
@@ -507,6 +633,8 @@ namespace InspectionReview.Web.Migrations
             modelBuilder.Entity("InspectionReview.Web.Domain.Inspection", b =>
                 {
                     b.Navigation("Assignments");
+
+                    b.Navigation("Documents");
                 });
 #pragma warning restore 612, 618
         }
