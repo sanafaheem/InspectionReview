@@ -1,7 +1,68 @@
 @page "/review"
 @attribute [Authorize(Roles = AppRoles.Reviewer)]
+@inject FindingService FindingService
 
 <PageTitle>Review queue</PageTitle>
 
 <h1>Review queue</h1>
-<p>Review queue coming soon.</p>
+
+@if (successMessage is not null)
+{
+    <div class="alert alert-success">@successMessage</div>
+}
+
+@if (queue is null)
+{
+    <p><em>Loading…</em></p>
+}
+else if (queue.Count == 0)
+{
+    <p>No findings waiting for review.</p>
+}
+else
+{
+    <table class="table">
+        <thead>
+            <tr>
+                <th>Finding</th>
+                <th>Inspection</th>
+                <th>Firm</th>
+                <th>Submitted by</th>
+                <th>Submitted</th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var item in queue)
+            {
+                <tr>
+                    <td><a href="findings/@item.Id">@item.Title</a></td>
+                    <td>@item.InspectionReference</td>
+                    <td>@item.FirmName</td>
+                    <td>@item.SubmittedBy</td>
+                    <td>@item.SubmittedAt.ToString("yyyy-MM-dd HH:mm") UTC</td>
+                </tr>
+            }
+        </tbody>
+    </table>
+}
+
+@code {
+    // Set by /findings/{id} after a review action. Only known values are shown.
+    [SupplyParameterFromQuery(Name = "done")]
+    private string? Done { get; set; }
+
+    private IReadOnlyList<ReviewQueueItem>? queue;
+    private string? successMessage;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        successMessage = Done switch
+        {
+            "approved" => "Finding approved.",
+            "returned" => "Finding returned to the inspector.",
+            _ => null,
+        };
+
+        queue = await FindingService.GetReviewQueueAsync();
+    }
+}

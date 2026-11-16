@@ -223,6 +223,13 @@ namespace InspectionReview.Web.Migrations
                         .HasMaxLength(20)
                         .HasColumnType("nvarchar(20)");
 
+                    b.Property<DateTime?>("SubmittedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("SubmittedById")
+                        .HasMaxLength(450)
+                        .HasColumnType("nvarchar(450)");
+
                     b.Property<string>("Text")
                         .IsRequired()
                         .HasColumnType("nvarchar(max)");
@@ -240,6 +247,8 @@ namespace InspectionReview.Web.Migrations
                     b.HasIndex("CreatedById");
 
                     b.HasIndex("InspectionId");
+
+                    b.HasIndex("SubmittedById");
 
                     b.ToTable("Findings");
                 });
@@ -598,9 +607,16 @@ namespace InspectionReview.Web.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
+                    b.HasOne("InspectionReview.Web.Domain.AppUser", "SubmittedBy")
+                        .WithMany()
+                        .HasForeignKey("SubmittedById")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.Navigation("CreatedBy");
 
                     b.Navigation("Inspection");
+
+                    b.Navigation("SubmittedBy");
                 });
 
             modelBuilder.Entity("InspectionReview.Web.Domain.FindingDocument", b =>

@@ -116,19 +116,30 @@ public sealed class AccessPolicy(ICurrentUser currentUser, IDbContextFactory<App
     public async Task<bool> IsReviewerAsync() =>
         (await currentUser.GetAsync())?.IsInRole(AppRoles.Reviewer) == true;
 
-    /// <summary>Inspectors only, for now. Lets pages hide the findings section entirely.</summary>
-    public Task<bool> CanSeeFindingsAsync() => IsInspectorAsync();
+    /// <summary>For the nav link and the review queue.</summary>
+    public Task<bool> CanReviewAsync() => IsReviewerAsync();
 
-    /// <summary>Inspectors see every finding on inspections they can view; everyone else none (for now).</summary>
+    /// <summary>Inspectors and reviewers. Lets pages hide the findings section entirely.</summary>
+    public async Task<bool> CanSeeFindingsAsync() => await IsInspectorAsync() || await IsReviewerAsync();
+
+    /// <summary>
+    /// Inspectors see every finding on inspections they can view. Reviewers see any finding
+    /// except Drafts, which are the inspector's unfinished work. Firm users see none.
+    /// </summary>
     public async Task<IQueryable<Finding>> VisibleFindingsAsync(AppDbContext db)
     {
-        if (!await CanSeeFindingsAsync())
+        if (await IsInspectorAsync())
         {
-            return db.Findings.Where(_ => false);
+            var inspections = await VisibleInspectionsAsync(db);
+            return db.Findings.Where(f => inspections.Any(i => i.Id == f.InspectionId));
         }
 
-        var inspections = await VisibleInspectionsAsync(db);
-        return db.Findings.Where(f => inspections.Any(i => i.Id == f.InspectionId));
+        if (await IsReviewerAsync())
+        {
+            return db.Findings.Where(f => f.State != FindingState.Draft);
+        }
+
+        return db.Findings.Where(_ => false);
     }
 
     public async Task<bool> CanEditFindingAsync(int findingId) =>
@@ -151,16 +162,20 @@ public sealed class AccessPolicy(ICurrentUser currentUser, IDbContextFactory<App
         }
 
         var inspectionAccess = await GetInspectionAccessAsync(finding.InspectionId);
-        return new FindingAccess(inspectionAccess, finding.State);
+        return new FindingAccess(inspectionAccess, await IsReviewerAsync(), finding.State);
     }
 }
 
 /// <summary>Edit and revise reuse CanCreateFinding; the finding's state decides which applies.</summary>
-public sealed record FindingAccess(InspectionAccess Inspection, FindingState? State)
+public sealed record FindingAccess(InspectionAccess Inspection, bool IsReviewer, FindingState? State)
 {
-    public static readonly FindingAccess None = new(InspectionAccess.None, null);
+    public static readonly FindingAccess None = new(InspectionAccess.None, false, null);
 
     public bool CanEdit => Inspection.CanCreateFinding && State == FindingState.Draft;
 
     public bool CanRevise => Inspection.CanCreateFinding && State == FindingState.Returned;
+
+    public bool CanApprove => IsReviewer && State == FindingState.Submitted;
+
+    public bool CanReturn => IsReviewer && State == FindingState.Submitted;
 }
