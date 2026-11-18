@@ -8,7 +8,8 @@ namespace InspectionReview.Web.Services;
 
 public sealed record FindingDocumentOption(int Id, string FileName, string DocumentType);
 
-public sealed record FindingListItem(int Id, string Title, FindingState State, DateTime UpdatedAt);
+/// <summary>LockedBy is set while someone holds a live edit lock.</summary>
+public sealed record FindingListItem(int Id, string Title, FindingState State, DateTime UpdatedAt, string? LockedBy);
 
 public sealed record NewFindingForm(
     int InspectionId,
@@ -16,7 +17,10 @@ public sealed record NewFindingForm(
     bool CanCreate,
     IReadOnlyList<FindingDocumentOption> AvailableDocuments);
 
-/// <summary>The page uses CanEdit and CanRevise, never the user's role. AvailableDocuments is empty unless CanEdit.</summary>
+/// <summary>
+/// The page uses the Can* flags, never the user's role. CouldEdit = allowed if they take the lock;
+/// CanEdit = they hold it. LockedBy is set while anyone holds a live lock. Version goes back with every save.
+/// </summary>
 public sealed record FindingDetail(
     int Id,
     int InspectionId,
@@ -30,6 +34,9 @@ public sealed record FindingDetail(
     DateTime UpdatedAt,
     IReadOnlyList<FindingDocumentOption> LinkedDocuments,
     IReadOnlyList<FindingDocumentOption> AvailableDocuments,
+    Guid Version,
+    LockHolder? LockedBy,
+    bool CouldEdit,
     bool CanEdit,
     bool CanRevise,
     bool CanApprove,
@@ -57,9 +64,16 @@ public sealed record FindingHistoryItem(
 public sealed class FindingService(
     IDbContextFactory<AppDbContext> dbFactory,
     AccessPolicy accessPolicy,
-    ICurrentUser currentUser)
+    ICurrentUser currentUser,
+    TimeProvider clock)
 {
     public const int TitleMaxLength = 200;
+
+    public const string ConcurrencyMessage =
+        "This finding was changed by someone else after you opened it. Reload to see the latest version.";
+
+    public const string LockLostMessage =
+        "You don't hold the edit lock for this finding, or it expired. Reload the finding to continue editing.";
 
     /// <summary>Null if the user may not see findings at all.</summary>
     public async Task<IReadOnlyList<FindingListItem>?> GetFindingsForInspectionAsync(
@@ -70,12 +84,14 @@ public sealed class FindingService(
             return null;
         }
 
+        var expired = LockExpiry();
         await using var db = await dbFactory.CreateDbContextAsync(cancellationToken);
         return await (await accessPolicy.VisibleFindingsAsync(db))
             .AsNoTracking()
             .Where(f => f.InspectionId == inspectionId)
             .OrderByDescending(f => f.UpdatedAt)
-            .Select(f => new FindingListItem(f.Id, f.Title, f.State, f.UpdatedAt))
+            .Select(f => new FindingListItem(
+                f.Id, f.Title, f.State, f.UpdatedAt, f.LockedAt >= expired ? f.LockedBy!.DisplayName : null))
             .ToListAsync(cancellationToken);
     }
 
@@ -134,6 +150,7 @@ public sealed class FindingService(
     /// <summary>Null if the finding doesn't exist or isn't visible.</summary>
     public async Task<FindingDetail?> GetFindingAsync(int findingId, CancellationToken cancellationToken = default)
     {
+        var expired = LockExpiry();
         await using var db = await dbFactory.CreateDbContextAsync(cancellationToken);
 
         var finding = await (await accessPolicy.VisibleFindingsAsync(db))
@@ -151,6 +168,8 @@ public sealed class FindingService(
                 CreatedBy = f.CreatedBy!.DisplayName,
                 f.CreatedAt,
                 f.UpdatedAt,
+                f.Version,
+                LockedBy = f.LockedAt >= expired ? new LockHolder(f.LockedBy!.DisplayName, f.LockedAt!.Value) : null,
                 LinkedDocuments = f.Documents
                     .OrderBy(fd => fd.Document!.FileName)
                     .Select(fd => new FindingDocumentOption(fd.DocumentId, fd.Document!.FileName, fd.Document.DocumentType!.Name))
@@ -165,7 +184,7 @@ public sealed class FindingService(
 
         var access = await accessPolicy.GetFindingAccessAsync(findingId);
 
-        var available = access.CanEdit
+        var available = access.CouldEdit
             ? await DocumentOptionsAsync(db, finding.InspectionId, cancellationToken)
             : [];
 
@@ -182,6 +201,9 @@ public sealed class FindingService(
             finding.UpdatedAt,
             finding.LinkedDocuments,
             available,
+            finding.Version,
+            finding.LockedBy,
+            access.CouldEdit,
             access.CanEdit,
             access.CanRevise,
             access.CanApprove,
@@ -209,7 +231,7 @@ public sealed class FindingService(
         return new NewFindingForm(inspectionId, reference, canCreate, documents);
     }
 
-    /// <summary>Creates a Draft and returns its Id.</summary>
+    /// <summary>Creates a Draft, locked for its creator, and returns its Id.</summary>
     public async Task<int> CreateAsync(
         int inspectionId, string? title, string? text, IEnumerable<int>? documentIds,
         CancellationToken cancellationToken = default)
@@ -226,7 +248,7 @@ public sealed class FindingService(
         await using var db = await dbFactory.CreateDbContextAsync(cancellationToken);
         var linkIds = await EnsureLinkableDocumentsAsync(db, inspectionId, documentIds, cancellationToken);
 
-        var now = DateTime.UtcNow;
+        var now = clock.GetUtcNow().UtcDateTime;
         var finding = new Finding
         {
             InspectionId = inspectionId,
@@ -236,6 +258,8 @@ public sealed class FindingService(
             CreatedById = user.UserId,
             CreatedAt = now,
             UpdatedAt = now,
+            LockedById = user.UserId,
+            LockedAt = now,
             Documents = linkIds.Select(id => new FindingDocument { DocumentId = id }).ToList(),
         };
 
@@ -244,11 +268,15 @@ public sealed class FindingService(
         return finding.Id;
     }
 
-    public async Task UpdateDraftAsync(
-        int findingId, string? title, string? text, IEnumerable<int>? documentIds,
+    /// <summary>
+    /// Saves the user's copy, loaded at <paramref name="version"/>, and refreshes their lock.
+    /// Returns the new Version for the next save.
+    /// </summary>
+    public async Task<Guid> UpdateDraftAsync(
+        int findingId, Guid version, string? title, string? text, IEnumerable<int>? documentIds,
         CancellationToken cancellationToken = default)
     {
-        await EnsureCanWorkOnAsync(findingId);
+        var access = await EnsureCanWorkOnAsync(findingId);
         var cleanTitle = ValidateTitle(title);
 
         await using var db = await dbFactory.CreateDbContextAsync(cancellationToken);
@@ -258,6 +286,7 @@ public sealed class FindingService(
         {
             throw new InvalidOperationException($"Only Draft findings can be edited. This finding is {finding.State}.");
         }
+        EnsureHoldsLock(access);
 
         var linkIds = await EnsureLinkableDocumentsAsync(db, finding.InspectionId, documentIds, cancellationToken);
 
@@ -272,13 +301,16 @@ public sealed class FindingService(
             finding.Documents.Add(new FindingDocument { DocumentId = id });
         }
 
-        finding.UpdatedAt = DateTime.UtcNow;
-        await db.SaveChangesAsync(cancellationToken);
+        var now = clock.GetUtcNow().UtcDateTime;
+        finding.UpdatedAt = now;
+        finding.LockedAt = now;   // saving counts as activity
+        return await SaveAsync(db, finding, version, cancellationToken);
     }
 
-    public async Task SubmitAsync(int findingId, CancellationToken cancellationToken = default)
+    /// <summary>Submits the copy at <paramref name="version"/> and releases the lock.</summary>
+    public async Task SubmitAsync(int findingId, Guid version, CancellationToken cancellationToken = default)
     {
-        await EnsureCanWorkOnAsync(findingId);
+        var access = await EnsureCanWorkOnAsync(findingId);
 
         await using var db = await dbFactory.CreateDbContextAsync(cancellationToken);
         var finding = await LoadAsync(db, findingId, includeDocuments: false, cancellationToken);
@@ -288,9 +320,16 @@ public sealed class FindingService(
             throw new ArgumentException("A finding needs a title and text before it can be submitted.");
         }
 
-        finding.SubmittedAt = DateTime.UtcNow;
+        finding.State = FindingWorkflow.EnsureCanTransition(finding.State, FindingAction.Submit);
+        EnsureHoldsLock(access);
+
+        var now = clock.GetUtcNow().UtcDateTime;
+        finding.UpdatedAt = now;
+        finding.SubmittedAt = now;
         finding.SubmittedById = (await currentUser.GetAsync(cancellationToken))!.UserId;
-        await TransitionAsync(db, finding, FindingAction.Submit, cancellationToken);
+        finding.LockedById = null;
+        finding.LockedAt = null;
+        await SaveAsync(db, finding, version, cancellationToken);
     }
 
     /// <summary>Returned → Draft. The reviewer's comment is kept.</summary>
@@ -330,7 +369,7 @@ public sealed class FindingService(
     /// The "who" half of CanEdit / CanRevise. The state half is checked afterwards, so a wrong
     /// state gives a clear InvalidOperationException rather than an access error.
     /// </summary>
-    private async Task EnsureCanWorkOnAsync(int findingId)
+    private async Task<FindingAccess> EnsureCanWorkOnAsync(int findingId)
     {
         var access = await accessPolicy.GetFindingAccessAsync(findingId);
         if (access.State is null)
@@ -343,6 +382,16 @@ public sealed class FindingService(
             throw new UnauthorizedAccessException(
                 "You can only work on findings for inspections you're assigned to, have confirmed independence for, and aren't recused from.");
         }
+
+        return access;
+    }
+
+    private static void EnsureHoldsLock(FindingAccess access)
+    {
+        if (!access.HoldsLock)
+        {
+            throw new InvalidOperationException(LockLostMessage);
+        }
     }
 
     private async Task EnsureReviewerAsync()
@@ -353,13 +402,32 @@ public sealed class FindingService(
         }
     }
 
-    private static async Task TransitionAsync(
+    private async Task TransitionAsync(
         AppDbContext db, Finding finding, FindingAction action, CancellationToken cancellationToken)
     {
         finding.State = FindingWorkflow.EnsureCanTransition(finding.State, action);
-        finding.UpdatedAt = DateTime.UtcNow;
-        await db.SaveChangesAsync(cancellationToken);
+        finding.UpdatedAt = clock.GetUtcNow().UtcDateTime;
+        await SaveAsync(db, finding, finding.Version, cancellationToken);
     }
+
+    // The UPDATE only matches if the row still has the version the user's copy was loaded at.
+    private static async Task<Guid> SaveAsync(
+        AppDbContext db, Finding finding, Guid expectedVersion, CancellationToken cancellationToken)
+    {
+        db.Entry(finding).Property(f => f.Version).OriginalValue = expectedVersion;
+        finding.Version = Guid.NewGuid();
+        try
+        {
+            await db.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            throw new InvalidOperationException(ConcurrencyMessage);
+        }
+        return finding.Version;
+    }
+
+    private DateTime LockExpiry() => clock.GetUtcNow().UtcDateTime - EditLockService.Timeout;
 
     private static async Task<Finding> LoadAsync(
         AppDbContext db, int findingId, bool includeDocuments, CancellationToken cancellationToken)

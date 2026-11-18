@@ -57,7 +57,8 @@ public sealed record InspectionDetail(
 public sealed class InspectionService(
     IDbContextFactory<AppDbContext> dbFactory,
     AccessPolicy accessPolicy,
-    ICurrentUser currentUser)
+    ICurrentUser currentUser,
+    TimeProvider clock)
 {
     public async Task<IReadOnlyList<InspectionListItem>> GetInspectionsAsync(CancellationToken cancellationToken = default)
     {
@@ -155,7 +156,7 @@ public sealed class InspectionService(
 
         if (assignment.IndependenceConfirmedAt is null)
         {
-            assignment.IndependenceConfirmedAt = DateTime.UtcNow;
+            assignment.IndependenceConfirmedAt = clock.GetUtcNow().UtcDateTime;
             await db.SaveChangesAsync(cancellationToken);
         }
     }
@@ -184,7 +185,7 @@ public sealed class InspectionService(
             return;
         }
 
-        db.Recusals.Add(new Recusal { InspectorId = user.UserId, FirmId = firmId, RecusedAt = DateTime.UtcNow });
+        db.Recusals.Add(new Recusal { InspectorId = user.UserId, FirmId = firmId, RecusedAt = clock.GetUtcNow().UtcDateTime });
         await db.SaveChangesAsync(cancellationToken);
     }
 }

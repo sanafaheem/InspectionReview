@@ -8,6 +8,7 @@ public enum FindingState
     Submitted,
     Returned,
     Approved,
+    Withdrawn
 }
 
 public class Finding
@@ -44,6 +45,17 @@ public class Finding
     [MaxLength(450)]
     public string? SubmittedById { get; set; }
     public AppUser? SubmittedBy { get; set; }
+
+    // Edit lock: null = free. A lock older than EditLockService.Timeout counts as free.
+    [MaxLength(450)]
+    public string? LockedById { get; set; }
+    public AppUser? LockedBy { get; set; }
+
+    public DateTime? LockedAt { get; set; }
+
+    // New Guid on every save; a save with a stale Version is refused.
+    [ConcurrencyCheck]
+    public Guid Version { get; set; } = Guid.NewGuid();
 
     public ICollection<FindingDocument> Documents { get; set; } = [];
 }

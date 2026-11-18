@@ -1,6 +1,9 @@
 @page "/findings/{Id:int}"
 @inject FindingService FindingService
+@inject EditLockService EditLocks
 @inject NavigationManager Navigation
+@inject TimeProvider Clock
+@implements IAsyncDisposable
 
 <PageTitle>@(string.IsNullOrWhiteSpace(finding?.Title) ? "Finding" : finding.Title)</PageTitle>
 
@@ -44,13 +47,32 @@ else
         </div>
     }
 
+    @if (!finding.CanEdit && finding.LockedBy is { } holder)
+    {
+        <div class="alert alert-secondary">
+            Being edited by <strong>@(holder.DisplayName ?? "another inspector")</strong>
+            since @holder.LockedAt.ToString("HH:mm") UTC. You can view it, but not edit it until they're done.
+        </div>
+    }
+
+    @if (LockWarning() is { } lockWarning)
+    {
+        <div class="alert alert-warning">@lockWarning</div>
+    }
+
     @if (statusMessage is not null)
     {
         <div class="alert alert-success">@statusMessage</div>
     }
     @if (errorMessage is not null)
     {
-        <div class="alert alert-danger">@errorMessage</div>
+        <div class="alert alert-danger">
+            @errorMessage
+            @if (needsReload)
+            {
+                <button type="button" class="btn btn-sm btn-outline-danger ms-2" @onclick="ReloadAsync">Reload</button>
+            }
+        </div>
     }
 
     @if (finding.CanApprove || finding.CanReturn)
@@ -109,17 +131,37 @@ else
 
     private FindingDetail? finding;
     private FindingFormModel model = new();
+    private Guid version;   // the copy on screen; sent with every save
     private bool loaded;
     private bool busy;
     private string? errorMessage;
     private string? statusMessage;
     private string? returnComment;
+    private bool needsReload;
+    private int? lockedId;   // the finding this page holds the lock for
+    private ITimer? lockWarningTimer;
 
     protected override async Task OnParametersSetAsync()
     {
+        // Wait for the interactive render: the prerendered copy is thrown away, and would take and drop the lock.
+        if (!RendererInfo.IsInteractive)
+        {
+            return;
+        }
+
+        // Re-render now and then so the lock warning appears without a click.
+        lockWarningTimer ??= Clock.CreateTimer(
+            _ => InvokeAsync(StateHasChanged), null, TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(30));
+
+        if (lockedId is int previous && previous != Id)
+        {
+            await ReleaseLockAsync();
+        }
+
         loaded = false;
         errorMessage = null;
         statusMessage = null;
+        needsReload = false;
         await LoadAsync();
         loaded = true;
     }
@@ -127,8 +169,16 @@ else
     private async Task LoadAsync()
     {
         finding = await FindingService.GetFindingAsync(Id);
+
+        if (finding is { CouldEdit: true, CanEdit: false } && (await TryAcquireLockAsync()).Acquired)
+        {
+            finding = await FindingService.GetFindingAsync(Id);
+        }
+        lockedId = finding?.CanEdit == true ? Id : null;
+
         if (finding is not null)
         {
+            version = finding.Version;
             model = new FindingFormModel
             {
                 Title = finding.Title,
@@ -138,14 +188,54 @@ else
         }
     }
 
-    private Task SaveDraftAsync() => RunAsync("Draft saved.", () =>
-        FindingService.UpdateDraftAsync(Id, model.Title, model.Text, model.DocumentIds));
+    private string? LockWarning()
+    {
+        if (finding is not { CanEdit: true, LockedBy: { } myLock })
+        {
+            return null;
+        }
+
+        var now = Clock.GetUtcNow().UtcDateTime;
+        if (now < myLock.ExpiresAt - EditLockService.WarningBefore)
+        {
+            return null;
+        }
+
+        return now < myLock.ExpiresAt
+            ? $"Your edit lock expires at {myLock.ExpiresAt:HH:mm} UTC. Save your draft to keep it."
+            : "Your edit lock has expired. Save your draft to take it back, if nobody else has.";
+    }
+
+    // The state may have changed since the page loaded; then just stay read-only.
+    private async Task<LockResult> TryAcquireLockAsync()
+    {
+        try
+        {
+            return await EditLocks.TryAcquireAsync(Id);
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return new LockResult(false, null);
+        }
+    }
+
+    // Drops unsaved changes on purpose: the user asked for the latest version.
+    private async Task ReloadAsync()
+    {
+        errorMessage = null;
+        statusMessage = null;
+        needsReload = false;
+        await LoadAsync();
+    }
+
+    private Task SaveDraftAsync() => RunAsync("Draft saved.", async () =>
+        version = await FindingService.UpdateDraftAsync(Id, version, model.Title, model.Text, model.DocumentIds));
 
     // Save first, so what's submitted is what's on screen.
     private Task SubmitAsync() => RunAsync("Submitted for review.", async () =>
     {
-        await FindingService.UpdateDraftAsync(Id, model.Title, model.Text, model.DocumentIds);
-        await FindingService.SubmitAsync(Id);
+        version = await FindingService.UpdateDraftAsync(Id, version, model.Title, model.Text, model.DocumentIds);
+        await FindingService.SubmitAsync(Id, version);
     });
 
     private Task ReviseAsync() => RunAsync("Back in Draft. Make your changes, then submit again.", () =>
@@ -195,17 +285,67 @@ else
         statusMessage = null;
         try
         {
-            await action();
+            await RetakeLockIfExpiredAsync(action);
             await LoadAsync();
             statusMessage = successMessage;
         }
         catch (Exception ex) when (ex is UnauthorizedAccessException or ArgumentException or InvalidOperationException)
         {
             errorMessage = ex.Message;
+            needsReload = ex.Message is FindingService.ConcurrencyMessage or FindingService.LockLostMessage;
         }
         finally
         {
             busy = false;
+        }
+    }
+
+    // The lock expired before the user saved. Take it back if nobody else has and save again with the
+    // same Version: if anyone changed the finding meanwhile, the Version check still refuses the save.
+    private async Task RetakeLockIfExpiredAsync(Func<Task> action)
+    {
+        try
+        {
+            await action();
+        }
+        catch (InvalidOperationException ex) when (ex.Message == FindingService.LockLostMessage)
+        {
+            var result = await TryAcquireLockAsync();
+            if (!result.Acquired)
+            {
+                lockedId = null;
+                // Not a Reload: that would throw away the text still in the form.
+                var holder = result.HeldBy is { } h
+                    ? $"{h.DisplayName ?? "Another inspector"} has been editing it since {h.LockedAt:HH:mm} UTC"
+                    : "someone else is editing it now";
+                throw new InvalidOperationException(
+                    $"Your edit lock expired and {holder}. Your changes are not saved; copy them before leaving this page.");
+            }
+
+            lockedId = Id;
+            await action();
+        }
+    }
+
+    private async Task ReleaseLockAsync()
+    {
+        if (lockedId is int id)
+        {
+            lockedId = null;
+            await EditLocks.ReleaseAsync(id);
+        }
+    }
+
+    // Best effort: if this fails (e.g. the connection is gone), the lock still expires after 30 minutes.
+    public async ValueTask DisposeAsync()
+    {
+        lockWarningTimer?.Dispose();
+        try
+        {
+            await ReleaseLockAsync();
+        }
+        catch (Exception)
+        {
         }
     }
 }

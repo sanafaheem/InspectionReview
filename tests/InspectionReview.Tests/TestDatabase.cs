@@ -4,6 +4,7 @@ using InspectionReview.Web.Domain;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
+using Microsoft.Extensions.Time.Testing;
 
 namespace InspectionReview.Tests;
 
@@ -17,6 +18,9 @@ public sealed class TestDatabase : IDisposable
     private readonly SqliteConnection connection;
     private readonly Action<string>? log;
     private readonly DbContextOptions<AppDbContext> systemOptions;
+
+    /// <summary>Shared by every service and context in the test; Advance() moves time for all of them.</summary>
+    public FakeTimeProvider Clock { get; } = new(DateTimeOffset.UtcNow);
 
     public TestDatabase(Action<string>? log = null)
     {
@@ -41,7 +45,7 @@ public sealed class TestDatabase : IDisposable
     {
         var builder = new DbContextOptionsBuilder<AppDbContext>()
             .UseSqlite(connection)
-            .AddInterceptors([new AuditInterceptor(() => user), .. extraInterceptors]);
+            .AddInterceptors([new AuditInterceptor(() => user, Clock), .. extraInterceptors]);
         if (log is not null)
         {
             builder.LogTo(log, [DbLoggerCategory.Database.Command.Name]);
@@ -98,6 +102,17 @@ public sealed class TestDatabase : IDisposable
         db.Documents.Add(document);
         await db.SaveChangesAsync();
         return document.Id;
+    }
+
+    /// <summary>Gives the user the edit lock, as the page does on open, and returns the Version to save with.</summary>
+    public async Task<Guid> TakeLockAsync(int findingId, string userId)
+    {
+        await using var db = CreateContext();
+        var now = Clock.GetUtcNow().UtcDateTime;
+        await db.Findings
+            .Where(f => f.Id == findingId)
+            .ExecuteUpdateAsync(s => s.SetProperty(f => f.LockedById, userId).SetProperty(f => f.LockedAt, now));
+        return await db.Findings.Where(f => f.Id == findingId).Select(f => f.Version).SingleAsync();
     }
 
     public async Task<DateTime?> IndependenceConfirmedAtAsync(int inspectionId, string inspectorId)

@@ -17,7 +17,7 @@ namespace InspectionReview.Web.Data;
 /// </summary>
 // Takes a function, not ICurrentUser itself: CurrentUser uses the DbContext factory, which needs this
 // interceptor, so a constructor dependency would be circular.
-public sealed class AuditInterceptor(Func<ICurrentUser> currentUser) : SaveChangesInterceptor
+public sealed class AuditInterceptor(Func<ICurrentUser> currentUser, TimeProvider clock) : SaveChangesInterceptor
 {
     public const string SystemUserId = "System";
     public const string LinkedDocumentsField = "Linked documents";
@@ -57,7 +57,7 @@ public sealed class AuditInterceptor(Func<ICurrentUser> currentUser) : SaveChang
         }
 
         var user = await currentUser().GetAsync(cancellationToken);
-        var state = new SaveState(changes, user?.UserId ?? SystemUserId, DateTime.UtcNow);
+        var state = new SaveState(changes, user?.UserId ?? SystemUserId, clock.GetUtcNow().UtcDateTime);
 
         if (context.Database.CurrentTransaction is null)
         {

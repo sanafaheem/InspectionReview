@@ -20,7 +20,7 @@ public sealed record InspectionAccess(bool IsInspector, bool IsAssigned, bool Is
 }
 
 /// <summary>The single place that decides what the signed-in user may see and do.</summary>
-public sealed class AccessPolicy(ICurrentUser currentUser, IDbContextFactory<AppDbContext> dbFactory)
+public sealed class AccessPolicy(ICurrentUser currentUser, IDbContextFactory<AppDbContext> dbFactory, TimeProvider clock)
 {
     // The Visible* methods take the caller's context because they return queries that run later.
     // The yes/no checks below use their own short-lived context.
@@ -142,18 +142,31 @@ public sealed class AccessPolicy(ICurrentUser currentUser, IDbContextFactory<App
         return db.Findings.Where(_ => false);
     }
 
+    /// <summary>Allowed to edit and holds a live edit lock.</summary>
     public async Task<bool> CanEditFindingAsync(int findingId) =>
         (await GetFindingAccessAsync(findingId)).CanEdit;
+
+    /// <summary>Would be allowed to edit with the lock. The page uses this to decide whether to try taking it.</summary>
+    public async Task<bool> CouldEditFindingAsync(int findingId) =>
+        (await GetFindingAccessAsync(findingId)).CouldEdit;
 
     public async Task<bool> CanReviseFindingAsync(int findingId) =>
         (await GetFindingAccessAsync(findingId)).CanRevise;
 
     public async Task<FindingAccess> GetFindingAccessAsync(int findingId)
     {
+        var userId = (await currentUser.GetAsync())?.UserId;
+        var expired = clock.GetUtcNow().UtcDateTime - EditLockService.Timeout;
+
         await using var db = await dbFactory.CreateDbContextAsync();
         var finding = await db.Findings
             .Where(f => f.Id == findingId)
-            .Select(f => new { f.InspectionId, f.State })
+            .Select(f => new
+            {
+                f.InspectionId,
+                f.State,
+                HoldsLock = userId != null && f.LockedById == userId && f.LockedAt >= expired,
+            })
             .SingleOrDefaultAsync();
 
         if (finding is null)
@@ -162,16 +175,19 @@ public sealed class AccessPolicy(ICurrentUser currentUser, IDbContextFactory<App
         }
 
         var inspectionAccess = await GetInspectionAccessAsync(finding.InspectionId);
-        return new FindingAccess(inspectionAccess, await IsReviewerAsync(), finding.State);
+        return new FindingAccess(inspectionAccess, await IsReviewerAsync(), finding.State, finding.HoldsLock);
     }
 }
 
 /// <summary>Edit and revise reuse CanCreateFinding; the finding's state decides which applies.</summary>
-public sealed record FindingAccess(InspectionAccess Inspection, bool IsReviewer, FindingState? State)
+public sealed record FindingAccess(InspectionAccess Inspection, bool IsReviewer, FindingState? State, bool HoldsLock)
 {
-    public static readonly FindingAccess None = new(InspectionAccess.None, false, null);
+    public static readonly FindingAccess None = new(InspectionAccess.None, false, null, false);
 
-    public bool CanEdit => Inspection.CanCreateFinding && State == FindingState.Draft;
+    /// <summary>Allowed to edit, lock aside.</summary>
+    public bool CouldEdit => Inspection.CanCreateFinding && State == FindingState.Draft;
+
+    public bool CanEdit => CouldEdit && HoldsLock;
 
     public bool CanRevise => Inspection.CanCreateFinding && State == FindingState.Returned;
 

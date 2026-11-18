@@ -143,7 +143,13 @@ else
                                     @(string.IsNullOrWhiteSpace(finding.Title) ? "(untitled)" : finding.Title)
                                 </a>
                             </td>
-                            <td><FindingStateBadge State="finding.State" /></td>
+                            <td>
+                                <FindingStateBadge State="finding.State" />
+                                @if (finding.LockedBy is not null)
+                                {
+                                    <span class="text-muted small ms-1">Being edited by @finding.LockedBy</span>
+                                }
+                            </td>
                             <td>@finding.UpdatedAt.ToString("yyyy-MM-dd HH:mm") UTC</td>
                         </tr>
                     }

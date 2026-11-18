@@ -34,13 +34,13 @@ public sealed class AuditTests : IDisposable
         await ArrangeInspectorsAsync();
         var findingId = await author.CreateAsync(1, "Old title", "Text", []);
 
-        await author.UpdateDraftAsync(findingId, "New title", "Text", []);
+        await author.UpdateDraftAsync(findingId, await database.TakeLockAsync(findingId, Author), "New title", "Text", []);
 
         var titleChanges = (await FindingAuditAsync(findingId)).Where(a => a.FieldName == nameof(Finding.Title)).ToList();
         Assert.Contains(titleChanges, a => a.OldValue == null && a.NewValue == "Old title");                    // creation
         Assert.Contains(titleChanges, a => a.OldValue == "Old title" && a.NewValue == "New title" && a.UserId == Author);
         // Text didn't change, so it's only logged once (on creation).
-        Assert.Single((await FindingAuditAsync(findingId)).Where(a => a.FieldName == nameof(Finding.Text)));
+        Assert.Single(await FindingAuditAsync(findingId), a => a.FieldName == nameof(Finding.Text));
     }
 
     [Fact]
@@ -49,7 +49,7 @@ public sealed class AuditTests : IDisposable
         await ArrangeInspectorsAsync();
         var findingId = await author.CreateAsync(1, "Title", "Text", []);
 
-        await coAuthor.SubmitAsync(findingId);   // a different inspector than the creator
+        await coAuthor.SubmitAsync(findingId, await database.TakeLockAsync(findingId, CoAuthor));   // a different inspector than the creator
 
         var stateChange = Assert.Single(
             await FindingAuditAsync(findingId), a => a.FieldName == nameof(Finding.State) && a.OldValue != null);
@@ -66,8 +66,8 @@ public sealed class AuditTests : IDisposable
         var documentId = await database.AddDocumentAsync(1, FirmUser, "Fire Safety Policy.pdf", DocumentStatus.Accepted);
         var findingId = await author.CreateAsync(1, "Title", "Text", []);
 
-        await author.UpdateDraftAsync(findingId, "Title", "Text", [documentId]);
-        await author.UpdateDraftAsync(findingId, "Title", "Text", []);
+        var version = await author.UpdateDraftAsync(findingId, await database.TakeLockAsync(findingId, Author), "Title", "Text", [documentId]);
+        await author.UpdateDraftAsync(findingId, version, "Title", "Text", []);
 
         var links = (await FindingAuditAsync(findingId))
             .Where(a => a.FieldName == AuditInterceptor.LinkedDocumentsField)
@@ -108,7 +108,7 @@ public sealed class AuditTests : IDisposable
     {
         await ArrangeInspectorsAsync();
         var findingId = await author.CreateAsync(1, "Title", "Text", []);
-        await author.UpdateDraftAsync(findingId, "Changed", "Text", []);   // also changes UpdatedAt
+        await author.UpdateDraftAsync(findingId, await database.TakeLockAsync(findingId, Author), "Changed", "Text", []);   // also changes UpdatedAt
 
         var fields = (await FindingAuditAsync(findingId)).Select(a => a.FieldName).ToHashSet();
 
@@ -126,7 +126,7 @@ public sealed class AuditTests : IDisposable
         await ArrangeInspectorsAsync();
         ICurrentUser currentUser = TestUsers.As(TestUsers.Inspector(Author));
         var factory = database.FactoryFor(currentUser, new FailWhenWritingAuditRows());
-        var service = new FindingService(factory, new AccessPolicy(currentUser, factory), currentUser);
+        var service = new FindingService(factory, new AccessPolicy(currentUser, factory, database.Clock), currentUser, database.Clock);
 
         await Assert.ThrowsAsync<InvalidOperationException>(() => service.CreateAsync(1, "Title", "Text", []));
 
@@ -149,7 +149,7 @@ public sealed class AuditTests : IDisposable
     {
         ICurrentUser currentUser = TestUsers.As(user);
         var factory = database.FactoryFor(currentUser);
-        return new FindingService(factory, new AccessPolicy(currentUser, factory), currentUser);
+        return new FindingService(factory, new AccessPolicy(currentUser, factory, database.Clock), currentUser, database.Clock);
     }
 
     private async Task<List<AuditEntry>> FindingAuditAsync(int findingId)
