@@ -21,8 +21,13 @@ if (string.IsNullOrWhiteSpace(connectionString))
         "dotnet user-secrets set \"ConnectionStrings:DefaultConnection\" \"<value>\"");
 }
 
-builder.Services.AddDbContextFactory<AppDbContext>(options =>
-    options.UseSqlServer(connectionString));
+// Scoped (not the default singleton) so the audit interceptor can use the scoped ICurrentUser.
+builder.Services.AddScoped(services => new AuditInterceptor(() => services.GetRequiredService<ICurrentUser>()));
+builder.Services.AddDbContextFactory<AppDbContext>(
+    (services, options) => options
+        .UseSqlServer(connectionString)
+        .AddInterceptors(services.GetRequiredService<AuditInterceptor>()),
+    ServiceLifetime.Scoped);
 
 // Identity stores use the scoped AppDbContext that AddDbContextFactory also registers.
 builder.Services.AddIdentity<AppUser, IdentityRole>(options =>

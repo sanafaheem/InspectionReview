@@ -24,6 +24,7 @@ else
     <p class="text-muted small">
         @finding.InspectionReference · created by @finding.CreatedBy on @finding.CreatedAt.ToString("yyyy-MM-dd")
         · updated @finding.UpdatedAt.ToString("yyyy-MM-dd HH:mm") UTC
+        · <a href="findings/@finding.Id/history">History</a>
     </p>
 
     @if (finding.ReturnComment is not null && finding.State == FindingState.Returned)

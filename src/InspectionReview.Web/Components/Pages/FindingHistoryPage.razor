@@ -1,0 +1,70 @@
+@page "/findings/{Id:int}/history"
+@inject FindingService FindingService
+
+<PageTitle>History</PageTitle>
+
+@if (!loaded)
+{
+    <p><em>Loading…</em></p>
+}
+else if (finding is null || history is null)
+{
+    <h1>Finding not found</h1>
+    <p><a href="">← Back to inspections</a></p>
+}
+else
+{
+    <p><a href="findings/@finding.Id">← Back to the finding</a></p>
+
+    <h1>History <small class="text-muted fs-5">@finding.InspectionReference · @DisplayTitle(finding.Title)</small></h1>
+
+    @if (history.Count == 0)
+    {
+        <p>No changes recorded yet.</p>
+    }
+    else
+    {
+        <table class="table table-sm">
+            <thead>
+                <tr>
+                    <th>When (UTC)</th>
+                    <th>Who</th>
+                    <th>Field</th>
+                    <th>Old value</th>
+                    <th>New value</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var entry in history)
+                {
+                    <tr>
+                        <td class="text-nowrap">@entry.ChangedAt.ToString("yyyy-MM-dd HH:mm:ss")</td>
+                        <td>@entry.ChangedBy</td>
+                        <td>@entry.FieldName</td>
+                        <td style="white-space: pre-wrap">@(entry.OldValue ?? "—")</td>
+                        <td style="white-space: pre-wrap">@(entry.NewValue ?? "—")</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    }
+}
+
+@code {
+    [Parameter]
+    public int Id { get; set; }
+
+    private FindingDetail? finding;
+    private IReadOnlyList<FindingHistoryItem>? history;
+    private bool loaded;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        loaded = false;
+        finding = await FindingService.GetFindingAsync(Id);
+        history = await FindingService.GetFindingHistoryAsync(Id);
+        loaded = true;
+    }
+
+    private static string DisplayTitle(string title) => string.IsNullOrWhiteSpace(title) ? "(untitled)" : title;
+}

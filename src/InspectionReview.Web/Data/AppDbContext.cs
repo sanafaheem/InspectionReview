@@ -16,6 +16,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbCo
     public DbSet<Document> Documents => Set<Document>();
     public DbSet<Finding> Findings => Set<Finding>();
     public DbSet<FindingDocument> FindingDocuments => Set<FindingDocument>();
+    public DbSet<AuditEntry> AuditEntries => Set<AuditEntry>();
 
     public const string FirmUserRoleId = "6f1d2c3a-1b7e-4c55-9a0e-2f7b8d1e4a01";
     public const string InspectorRoleId = "6f1d2c3a-1b7e-4c55-9a0e-2f7b8d1e4a02";
@@ -116,6 +117,9 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbCo
                 .HasForeignKey(fd => fd.DocumentId)
                 .OnDelete(DeleteBehavior.Restrict);
         });
+
+        // History is always looked up by entity.
+        builder.Entity<AuditEntry>().HasIndex(a => new { a.EntityName, a.EntityId });
 
         SeedReferenceData(builder);
     }

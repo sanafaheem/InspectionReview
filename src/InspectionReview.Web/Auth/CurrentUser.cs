@@ -19,7 +19,16 @@ public sealed class CurrentUser(
             return _userInfo;
         }
 
-        var principal = (await authenticationStateProvider.GetAuthenticationStateAsync()).User;
+        ClaimsPrincipal principal;
+        try
+        {
+            principal = (await authenticationStateProvider.GetAuthenticationStateAsync()).User;
+        }
+        catch (InvalidOperationException)
+        {
+            // No Blazor auth state outside a request or circuit (startup seed, background jobs).
+            return null;
+        }
 
         var userId = principal.FindFirstValue(ClaimTypes.NameIdentifier);
         if (userId is null)

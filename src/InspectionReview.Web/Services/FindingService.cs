@@ -1,3 +1,4 @@
+using System.Globalization;
 using InspectionReview.Web.Auth;
 using InspectionReview.Web.Data;
 using InspectionReview.Web.Domain;
@@ -41,6 +42,13 @@ public sealed record ReviewQueueItem(
     string FirmName,
     string SubmittedBy,
     DateTime SubmittedAt);
+
+public sealed record FindingHistoryItem(
+    DateTime ChangedAt,
+    string ChangedBy,
+    string FieldName,
+    string? OldValue,
+    string? NewValue);
 
 /// <summary>
 /// Each action checks access (UnauthorizedAccessException), then input (ArgumentException),
@@ -91,6 +99,35 @@ public sealed class FindingService(
                 f.Inspection.Firm!.Name,
                 f.SubmittedBy!.DisplayName,
                 f.SubmittedAt!.Value))
+            .ToListAsync(cancellationToken);
+    }
+
+    /// <summary>Newest first. Null if the finding doesn't exist or isn't visible (same rule as GetFindingAsync).</summary>
+    public async Task<IReadOnlyList<FindingHistoryItem>?> GetFindingHistoryAsync(
+        int findingId, CancellationToken cancellationToken = default)
+    {
+        await using var db = await dbFactory.CreateDbContextAsync(cancellationToken);
+
+        if (!await (await accessPolicy.VisibleFindingsAsync(db)).AnyAsync(f => f.Id == findingId, cancellationToken))
+        {
+            return null;
+        }
+
+        var entityId = findingId.ToString(CultureInfo.InvariantCulture);
+
+        // Left join: "System" has no user row, so it shows as its UserId.
+        return await (
+                from entry in db.AuditEntries.AsNoTracking()
+                where entry.EntityName == nameof(Finding) && entry.EntityId == entityId
+                join user in db.Users on entry.UserId equals user.Id into users
+                from user in users.DefaultIfEmpty()
+                orderby entry.ChangedAt descending, entry.Id
+                select new FindingHistoryItem(
+                    entry.ChangedAt,
+                    user != null ? user.DisplayName : entry.UserId,
+                    entry.FieldName,
+                    entry.OldValue,
+                    entry.NewValue))
             .ToListAsync(cancellationToken);
     }
 

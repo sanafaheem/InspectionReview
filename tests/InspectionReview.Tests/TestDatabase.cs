@@ -1,38 +1,53 @@
+using InspectionReview.Web.Auth;
 using InspectionReview.Web.Data;
 using InspectionReview.Web.Domain;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 
 namespace InspectionReview.Tests;
 
-/// <summary>SQLite in-memory database with the full schema and HasData seed. Lives as long as its connection.</summary>
+/// <summary>
+/// SQLite in-memory database with the full schema and HasData seed. Lives as long as its connection.
+/// Every context goes through AuditInterceptor, like the app: FactoryFor(user) saves as that user,
+/// CreateContext() and the Add* helpers save as System.
+/// </summary>
 public sealed class TestDatabase : IDisposable
 {
     private readonly SqliteConnection connection;
-    private readonly DbContextOptions<AppDbContext> options;
+    private readonly Action<string>? log;
+    private readonly DbContextOptions<AppDbContext> systemOptions;
 
     public TestDatabase(Action<string>? log = null)
     {
         connection = new SqliteConnection("DataSource=:memory:");
         connection.Open();
+        this.log = log;
 
-        var builder = new DbContextOptionsBuilder<AppDbContext>().UseSqlite(connection);
-        if (log is not null)
-        {
-            builder.LogTo(log, [DbLoggerCategory.Database.Command.Name]);
-        }
-        options = builder.Options;
+        systemOptions = BuildOptions(TestUsers.As(null), []);
 
         // From the model, not the SQL Server migrations.
         using var db = CreateContext();
         db.Database.EnsureCreated();
-
-        Factory = new ContextFactory(this);
     }
 
-    public IDbContextFactory<AppDbContext> Factory { get; }
+    /// <summary>Contexts that save as the given user. Extra interceptors run after the audit one.</summary>
+    public IDbContextFactory<AppDbContext> FactoryFor(ICurrentUser user, params IInterceptor[] extraInterceptors) =>
+        new ContextFactory(BuildOptions(user, extraInterceptors));
 
-    public AppDbContext CreateContext() => new(options);
+    public AppDbContext CreateContext() => new(systemOptions);
+
+    private DbContextOptions<AppDbContext> BuildOptions(ICurrentUser user, IInterceptor[] extraInterceptors)
+    {
+        var builder = new DbContextOptionsBuilder<AppDbContext>()
+            .UseSqlite(connection)
+            .AddInterceptors([new AuditInterceptor(() => user), .. extraInterceptors]);
+        if (log is not null)
+        {
+            builder.LogTo(log, [DbLoggerCategory.Database.Command.Name]);
+        }
+        return builder.Options;
+    }
 
     public void Dispose() => connection.Dispose();
 
@@ -94,8 +109,8 @@ public sealed class TestDatabase : IDisposable
             .SingleOrDefaultAsync();
     }
 
-    private sealed class ContextFactory(TestDatabase database) : IDbContextFactory<AppDbContext>
+    private sealed class ContextFactory(DbContextOptions<AppDbContext> options) : IDbContextFactory<AppDbContext>
     {
-        public AppDbContext CreateDbContext() => database.CreateContext();
+        public AppDbContext CreateDbContext() => new(options);
     }
 }
