@@ -21,8 +21,12 @@ if (string.IsNullOrWhiteSpace(connectionString))
         "dotnet user-secrets set \"ConnectionStrings:DefaultConnection\" \"<value>\"");
 }
 
+// All "now" values come from here, so tests can control time.
+builder.Services.AddSingleton(TimeProvider.System);
+
 // Scoped (not the default singleton) so the audit interceptor can use the scoped ICurrentUser.
-builder.Services.AddScoped(services => new AuditInterceptor(() => services.GetRequiredService<ICurrentUser>()));
+builder.Services.AddScoped(services => new AuditInterceptor(
+    () => services.GetRequiredService<ICurrentUser>(), services.GetRequiredService<TimeProvider>()));
 builder.Services.AddDbContextFactory<AppDbContext>(
     (services, options) => options
         .UseSqlServer(connectionString)
@@ -50,6 +54,7 @@ builder.Services.AddScoped<LoginService>();
 builder.Services.AddScoped<AccessPolicy>();
 builder.Services.AddScoped<InspectionService>();
 builder.Services.AddScoped<FindingService>();
+builder.Services.AddScoped<EditLockService>();
 
 var app = builder.Build();
 

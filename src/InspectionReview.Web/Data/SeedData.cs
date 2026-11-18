@@ -9,8 +9,8 @@ public static class SeedData
 {
     public const string FirmUser1Id = "a1c4e8f2-3b6d-4f90-8e21-7d5c9b0a1f01";
     public const string FirmUser2Id = "a1c4e8f2-3b6d-4f90-8e21-7d5c9b0a1f02";
-    public const string InspectorTwoInspectionsId = "a1c4e8f2-3b6d-4f90-8e21-7d5c9b0a1f03";
-    public const string InspectorOneInspectionId = "a1c4e8f2-3b6d-4f90-8e21-7d5c9b0a1f04";
+    public const string PriyaId = "a1c4e8f2-3b6d-4f90-8e21-7d5c9b0a1f03";
+    public const string TomId = "a1c4e8f2-3b6d-4f90-8e21-7d5c9b0a1f04";
     public const string ReviewerId = "a1c4e8f2-3b6d-4f90-8e21-7d5c9b0a1f05";
 
     public const string PasswordConfigKey = "SeedUsers:Password";
@@ -21,23 +21,24 @@ public static class SeedData
     [
         new(FirmUser1Id, "olivia.grant@harbourview.example", "Olivia Grant", AppRoles.FirmUser, FirmId: 1),
         new(FirmUser2Id, "marcus.bell@northgate.example", "Marcus Bell", AppRoles.FirmUser, FirmId: 2),
-        new(InspectorTwoInspectionsId, "priya.nair@inspections.example", "Priya Nair", AppRoles.Inspector, FirmId: null),
-        new(InspectorOneInspectionId, "tom.reyes@inspections.example", "Tom Reyes", AppRoles.Inspector, FirmId: null),
+        new(PriyaId, "priya.nair@inspections.example", "Priya Nair", AppRoles.Inspector, FirmId: null),
+        new(TomId, "tom.reyes@inspections.example", "Tom Reyes", AppRoles.Inspector, FirmId: null),
         new(ReviewerId, "hannah.cole@inspections.example", "Hannah Cole", AppRoles.Reviewer, FirmId: null),
     ];
 
     // (InspectionId, InspectorId)
     private static readonly (int InspectionId, string InspectorId)[] Assignments =
     [
-        (1, InspectorTwoInspectionsId),
-        (3, InspectorTwoInspectionsId),
-        (2, InspectorOneInspectionId),
+        (1, PriyaId),
+        (3, PriyaId),
+        (1, TomId),   // two inspectors on INS-001 to demo the edit lock
+        (2, TomId),
     ];
 
     // (InspectorId, FirmId). Priya is recused from Northgate, so INS-003 is view-only for her.
     private static readonly (string InspectorId, int FirmId)[] Recusals =
     [
-        (InspectorTwoInspectionsId, 2),
+        (PriyaId, 2),
     ];
 
     public static async Task SeedAsync(IServiceProvider services, CancellationToken cancellationToken = default)

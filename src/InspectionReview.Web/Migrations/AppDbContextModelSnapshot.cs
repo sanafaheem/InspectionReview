@@ -259,6 +259,13 @@ namespace InspectionReview.Web.Migrations
                     b.Property<int>("InspectionId")
                         .HasColumnType("int");
 
+                    b.Property<DateTime?>("LockedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("LockedById")
+                        .HasMaxLength(450)
+                        .HasColumnType("nvarchar(450)");
+
                     b.Property<string>("ReturnComment")
                         .HasColumnType("nvarchar(max)");
 
@@ -286,11 +293,17 @@ namespace InspectionReview.Web.Migrations
                     b.Property<DateTime>("UpdatedAt")
                         .HasColumnType("datetime2");
 
+                    b.Property<Guid>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("uniqueidentifier");
+
                     b.HasKey("Id");
 
                     b.HasIndex("CreatedById");
 
                     b.HasIndex("InspectionId");
+
+                    b.HasIndex("LockedById");
 
                     b.HasIndex("SubmittedById");
 
@@ -651,6 +664,11 @@ namespace InspectionReview.Web.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
+                    b.HasOne("InspectionReview.Web.Domain.AppUser", "LockedBy")
+                        .WithMany()
+                        .HasForeignKey("LockedById")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.HasOne("InspectionReview.Web.Domain.AppUser", "SubmittedBy")
                         .WithMany()
                         .HasForeignKey("SubmittedById")
@@ -659,6 +677,8 @@ namespace InspectionReview.Web.Migrations
                     b.Navigation("CreatedBy");
 
                     b.Navigation("Inspection");
+
+                    b.Navigation("LockedBy");
 
                     b.Navigation("SubmittedBy");
                 });

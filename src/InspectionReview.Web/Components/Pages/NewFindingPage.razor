@@ -46,6 +46,7 @@ else
 
     // Set once created, so a retry after a failed submit doesn't create a duplicate.
     private int? createdId;
+    private Guid version;   // of the created draft, for later saves
 
     protected override async Task OnParametersSetAsync()
     {
@@ -63,7 +64,7 @@ else
     private Task SubmitAsync() => RunAsync(async () =>
     {
         var id = await SaveAsync();
-        await FindingService.SubmitAsync(id);
+        await FindingService.SubmitAsync(id, version);
         Navigation.NavigateTo($"findings/{id}");
     });
 
@@ -71,11 +72,12 @@ else
     {
         if (createdId is int id)
         {
-            await FindingService.UpdateDraftAsync(id, model.Title, model.Text, model.DocumentIds);
+            version = await FindingService.UpdateDraftAsync(id, version, model.Title, model.Text, model.DocumentIds);
             return id;
         }
 
         createdId = await FindingService.CreateAsync(InspectionId, model.Title, model.Text, model.DocumentIds);
+        version = (await FindingService.GetFindingAsync(createdId.Value))!.Version;
         return createdId.Value;
     }
 

@@ -82,7 +82,7 @@ All seed users share the `SeedUsers:Password` password:
 | olivia.grant@harbourview.example | FirmUser | Harbourview Property Group (firm 1) |
 | marcus.bell@northgate.example | FirmUser | Northgate Facilities Ltd (firm 2) |
 | priya.nair@inspections.example | Inspector | INS-001 and INS-003; recused from Northgate (firm 2), so INS-003 is view-only |
-| tom.reyes@inspections.example | Inspector | INS-002 |
+| tom.reyes@inspections.example | Inspector | INS-001 and INS-002 |
 | hannah.cole@inspections.example | Reviewer | none |
 
 ## Local infrastructure commands

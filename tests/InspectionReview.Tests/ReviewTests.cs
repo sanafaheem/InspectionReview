@@ -69,7 +69,7 @@ public sealed class ReviewTests : IDisposable
         Assert.False(asInspector.CanEdit);
         Assert.False(asInspector.CanRevise);
         await Assert.ThrowsAsync<InvalidOperationException>(
-            () => author.UpdateDraftAsync(findingId, "Changed", "Changed", []));
+            () => author.UpdateDraftAsync(findingId, Guid.Empty, "Changed", "Changed", []));
 
         var asReviewer = await reviewer.GetFindingAsync(findingId);
         Assert.NotNull(asReviewer);
@@ -98,7 +98,7 @@ public sealed class ReviewTests : IDisposable
 
         // Created by the author but submitted by the co-author: the queue shows the submitter.
         var second = await author.CreateAsync(1, "Submitted second", "Text", []);
-        await coAuthor.SubmitAsync(second);
+        await coAuthor.SubmitAsync(second, await database.TakeLockAsync(second, CoAuthor));
 
         var returned = await SubmitNewAsync(author, "Returned");
         await reviewer.ReturnAsync(returned, "Needs more detail");
@@ -126,10 +126,11 @@ public sealed class ReviewTests : IDisposable
         }
     }
 
-    private static async Task<int> SubmitNewAsync(FindingService service, string title)
+    // The service must belong to the author.
+    private async Task<int> SubmitNewAsync(FindingService service, string title)
     {
         var id = await service.CreateAsync(1, title, "Text", []);
-        await service.SubmitAsync(id);
+        await service.SubmitAsync(id, await database.TakeLockAsync(id, Author));
         return id;
     }
 
@@ -137,7 +138,7 @@ public sealed class ReviewTests : IDisposable
     {
         ICurrentUser currentUser = TestUsers.As(user);
         var factory = database.FactoryFor(currentUser);
-        return new FindingService(factory, new AccessPolicy(currentUser, factory), currentUser);
+        return new FindingService(factory, new AccessPolicy(currentUser, factory, database.Clock), currentUser, database.Clock);
     }
 
     private async Task<FindingState> ReadStateAsync(int findingId)

@@ -90,6 +90,6 @@ public sealed class InspectionServiceTests(ITestOutputHelper output) : IDisposab
     {
         ICurrentUser currentUser = TestUsers.As(user);
         var factory = database.FactoryFor(currentUser);
-        return new InspectionService(factory, new AccessPolicy(currentUser, factory), currentUser);
+        return new InspectionService(factory, new AccessPolicy(currentUser, factory, database.Clock), currentUser, database.Clock);
     }
 }

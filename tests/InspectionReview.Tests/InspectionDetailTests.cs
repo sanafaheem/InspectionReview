@@ -120,7 +120,7 @@ public sealed class InspectionDetailTests(ITestOutputHelper output) : IDisposabl
     {
         ICurrentUser currentUser = TestUsers.As(user);
         var factory = database.FactoryFor(currentUser);
-        var policy = new AccessPolicy(currentUser, factory);
-        return (new InspectionService(factory, policy, currentUser), policy);
+        var policy = new AccessPolicy(currentUser, factory, database.Clock);
+        return (new InspectionService(factory, policy, currentUser, database.Clock), policy);
     }
 }

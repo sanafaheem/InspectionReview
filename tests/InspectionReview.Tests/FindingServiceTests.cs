@@ -40,7 +40,7 @@ public sealed class FindingServiceTests : IDisposable
         await Assert.ThrowsAsync<UnauthorizedAccessException>(
             () => outsider.CreateAsync(1, "Sneaky", "Not my inspection", []));
         await Assert.ThrowsAsync<UnauthorizedAccessException>(
-            () => outsider.UpdateDraftAsync(draftId, "Changed", "Changed", []));
+            () => outsider.UpdateDraftAsync(draftId, Guid.Empty, "Changed", "Changed", []));
 
         // The outsider can view it but not edit it, and nothing changed.
         var asSeenByOutsider = await outsider.GetFindingAsync(draftId);
@@ -65,13 +65,13 @@ public sealed class FindingServiceTests : IDisposable
 
         // Approved to Draft: Approved is final.
         var approvedId = await author.CreateAsync(1, "Title", "Text", []);
-        await author.SubmitAsync(approvedId);
+        await author.SubmitAsync(approvedId, await database.TakeLockAsync(approvedId, Author));
         await reviewer.ApproveAsync(approvedId);
 
         var revise = await Assert.ThrowsAsync<InvalidOperationException>(() => author.ReviseAsync(approvedId));
         Assert.Contains("Cannot Revise a finding that is Approved", revise.Message);
         await Assert.ThrowsAsync<InvalidOperationException>(
-            () => author.UpdateDraftAsync(approvedId, "Edited", "Edited", []));
+            () => author.UpdateDraftAsync(approvedId, Guid.Empty, "Edited", "Edited", []));
         Assert.Equal(FindingState.Approved, (await ReadFindingAsync(approvedId)).State);
     }
 
@@ -80,7 +80,7 @@ public sealed class FindingServiceTests : IDisposable
     {
         await ArrangeAuthorAsync();
         var findingId = await author.CreateAsync(1, "Title", "Text", []);
-        await author.SubmitAsync(findingId);
+        await author.SubmitAsync(findingId, await database.TakeLockAsync(findingId, Author));
 
         await Assert.ThrowsAsync<ArgumentException>(() => reviewer.ReturnAsync(findingId, null));
         await Assert.ThrowsAsync<ArgumentException>(() => reviewer.ReturnAsync(findingId, "   "));
@@ -105,8 +105,9 @@ public sealed class FindingServiceTests : IDisposable
         Assert.Equal(0, await CountFindingsAsync());
 
         var draftId = await author.CreateAsync(1, "Title", "Text", [ownDocument]);
+        var version = await database.TakeLockAsync(draftId, Author);
         await Assert.ThrowsAsync<ArgumentException>(
-            () => author.UpdateDraftAsync(draftId, "Title", "Text", [otherInspectionsDocument]));
+            () => author.UpdateDraftAsync(draftId, version, "Title", "Text", [otherInspectionsDocument]));
 
         var draft = await author.GetFindingAsync(draftId);
         Assert.NotNull(draft);
@@ -119,7 +120,7 @@ public sealed class FindingServiceTests : IDisposable
         await ArrangeAuthorAsync();
         var findingId = await author.CreateAsync(1, "Expired fire certificate", "The certificate expired.", []);
 
-        await author.SubmitAsync(findingId);
+        await author.SubmitAsync(findingId, await database.TakeLockAsync(findingId, Author));
         Assert.Equal(FindingState.Submitted, (await ReadFindingAsync(findingId)).State);
 
         await reviewer.ReturnAsync(findingId, "  Please give the expiry date.  ");
@@ -136,11 +137,13 @@ public sealed class FindingServiceTests : IDisposable
         Assert.NotNull(revised);
         Assert.Equal(FindingState.Draft, revised.State);
         Assert.Equal("Please give the expiry date.", revised.ReturnComment);
-        Assert.True(revised.CanEdit);
+        Assert.True(revised.CouldEdit);   // the page takes the lock next
         Assert.False(revised.CanRevise);
 
-        await author.UpdateDraftAsync(findingId, "Expired fire certificate", "The certificate expired on 31 March 2026.", []);
-        await author.SubmitAsync(findingId);
+        var version = await author.UpdateDraftAsync(
+            findingId, await database.TakeLockAsync(findingId, Author),
+            "Expired fire certificate", "The certificate expired on 31 March 2026.", []);
+        await author.SubmitAsync(findingId, version);
 
         var (state, _, comment) = await ReadFindingAsync(findingId);
         Assert.Equal(FindingState.Submitted, state);
@@ -158,7 +161,7 @@ public sealed class FindingServiceTests : IDisposable
     {
         ICurrentUser currentUser = TestUsers.As(user);
         var factory = database.FactoryFor(currentUser);
-        return new FindingService(factory, new AccessPolicy(currentUser, factory), currentUser);
+        return new FindingService(factory, new AccessPolicy(currentUser, factory, database.Clock), currentUser, database.Clock);
     }
 
     private async Task<(FindingState State, string Title, string? ReturnComment)> ReadFindingAsync(int findingId)
